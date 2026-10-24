@@ -2,12 +2,15 @@ import streamlit as st
 import time
 import sqlite3
 import hashlib
+import random
+import smtplib
+from email.mime.text import MIMEText
 from google import genai
 from google.genai import types
 
 st.set_page_config(page_title="T-Pire", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# ----------------- БАЗА ДАННИ (ПОТРЕБИТЕЛИ И ИСТОРИЯ) -----------------
+# ----------------- БАЗА ДАННИ -----------------
 conn = sqlite3.connect("tpire_data.db", check_same_thread=False)
 c = conn.cursor()
 
@@ -43,6 +46,27 @@ conn.commit()
 
 def hash_pass(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+# Изпращане на имейл с код
+def send_email_code(to_email: str, code: str):
+    smtp_user = st.secrets.get("SMTP_EMAIL")
+    smtp_pass = st.secrets.get("SMTP_PASSWORD")
+    
+    if not smtp_user or not smtp_pass:
+        return False, "Няма настроен SMTP_EMAIL в Secrets."
+
+    msg = MIMEText(f"Здравейте!\n\nВашият код за потвърждение на регистрацията в T-Pire е: {code}\n\nПоздрави,\nЕкипът на T-Pire", "plain", "utf-8")
+    msg["Subject"] = f"Код за потвърждение: {code}"
+    msg["From"] = f"T-Pire AI <{smtp_user}>"
+    msg["To"] = to_email
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, [to_email], msg.as_string())
+        return True, "Кодът е изпратен успешно!"
+    except Exception as e:
+        return False, str(e)
 
 # ----------------- СТИЛИЗИРАНЕ -----------------
 css_styles = """
@@ -171,10 +195,19 @@ if "attached_file" not in st.session_state:
 if "pending_submit" not in st.session_state:
     st.session_state.pending_submit = None
 
-# Диалогов прозорец за Вход / Регистрация
+# Състояние за имейл кода
+if "reg_step" not in st.session_state:
+    st.session_state.reg_step = 1
+if "target_email" not in st.session_state:
+    st.session_state.target_email = ""
+if "gen_code" not in st.session_state:
+    st.session_state.gen_code = ""
+
+# Диалог за Вход и Регистрация с Код
 @st.dialog("Вход в T-Pire")
 def auth_modal():
-    tab_login, tab_reg = st.tabs(["Вход", "Регистрация"])
+    tab_login, tab_reg = st.tabs(["Вход", "Регистрация с код"])
+    
     with tab_login:
         email = st.text_input("Имейл", key="auth_login_email")
         password = st.text_input("Парола", type="password", key="auth_login_pass")
@@ -195,25 +228,60 @@ def auth_modal():
                 st.warning("Моля, попълнете всички полета.")
 
     with tab_reg:
-        reg_email = st.text_input("Имейл за регистрация", key="auth_reg_email")
-        reg_pass = st.text_input("Парола", type="password", key="auth_reg_pass")
-        if st.button("Създай нов профил", use_container_width=True):
-            if reg_email and reg_pass:
-                try:
-                    c.execute("INSERT INTO users (email, password) VALUES (?, ?)", (reg_email.strip().lower(), hash_pass(reg_pass)))
-                    conn.commit()
-                    st.session_state.user_id = c.lastrowid
-                    st.session_state.user_email = reg_email.strip().lower()
-                    st.session_state.current_chat_id = None
-                    st.session_state.messages = []
-                    st.success("Профилът е създаден успешно!")
+        if st.session_state.reg_step == 1:
+            st.markdown("Въведете вашия имейл, за да получите код за потвърждение:")
+            r_email = st.text_input("Имейл", key="reg_email_input")
+            if st.button("📩 Изпрати код", use_container_width=True):
+                if r_email and "@" in r_email:
+                    # Проверка дали вече съществува
+                    c.execute("SELECT id FROM users WHERE email = ?", (r_email.strip().lower(),))
+                    if c.fetchone():
+                        st.error("Този имейл вече има регистрация!")
+                    else:
+                        code = str(random.randint(100000, 999999))
+                        st.session_state.gen_code = code
+                        st.session_state.target_email = r_email.strip().lower()
+                        
+                        sent, info = send_email_code(st.session_state.target_email, code)
+                        if sent:
+                            st.success("Кодът беше изпратен на вашия имейл!")
+                        else:
+                            st.info(f"💡 (Тестови режим) Вашият код е: **{code}**")
+                        
+                        st.session_state.reg_step = 2
+                        st.rerun()
+                else:
+                    st.warning("Въведете валиден имейл адрес.")
+        
+        elif st.session_state.reg_step == 2:
+            st.markdown(f"Изпратен е код към **{st.session_state.target_email}**:")
+            entered_code = st.text_input("Въведете 6-цифрения код", key="reg_code_input")
+            new_pass = st.text_input("Изберете парола", type="password", key="reg_pass_input")
+            
+            col_b1, col_b2 = st.columns([1, 1])
+            with col_b1:
+                if st.button("Завърши регистрация", use_container_width=True):
+                    if entered_code == st.session_state.gen_code:
+                        if len(new_pass) >= 4:
+                            c.execute("INSERT INTO users (email, password) VALUES (?, ?)", (st.session_state.target_email, hash_pass(new_pass)))
+                            conn.commit()
+                            st.session_state.user_id = c.lastrowid
+                            st.session_state.user_email = st.session_state.target_email
+                            st.session_state.current_chat_id = None
+                            st.session_state.messages = []
+                            st.session_state.reg_step = 1
+                            st.success("Регистрацията е успешна!")
+                            st.rerun()
+                        else:
+                            st.error("Паролата трябва да е поне 4 символа.")
+                    else:
+                        st.error("Грешен код за потвърждение!")
+            with col_b2:
+                if st.button("Назад / Нов имейл", use_container_width=True):
+                    st.session_state.reg_step = 1
                     st.rerun()
-                except sqlite3.IntegrityError:
-                    st.error("Този имейл вече е регистриран!")
-            else:
-                st.warning("Моля, попълнете всички полета.")
 
-# Зареждане на съобщения за избран чат
+# Зареждане на чат
 def load_chat(chat_id):
     st.session_state.current_chat_id = chat_id
     c.execute("SELECT role, content, file_name, file_type, file_bytes FROM messages WHERE chat_id = ? ORDER BY id ASC", (chat_id,))
@@ -228,6 +296,29 @@ def load_chat(chat_id):
             "file_bytes": r[4]
         })
     st.rerun()
+
+# Изтриване на един конкретен чат
+def delete_single_chat(chat_id):
+    c.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
+    c.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
+    conn.commit()
+    if st.session_state.current_chat_id == chat_id:
+        st.session_state.current_chat_id = None
+        st.session_state.messages = []
+    st.rerun()
+
+# Изтриване на ВСИЧКИ чатове на потребителя
+def delete_all_user_chats():
+    if st.session_state.user_id:
+        c.execute("SELECT id FROM chats WHERE user_id = ?", (st.session_state.user_id,))
+        c_ids = [r[0] for r in c.fetchall()]
+        for cid in c_ids:
+            c.execute("DELETE FROM messages WHERE chat_id = ?", (cid,))
+        c.execute("DELETE FROM chats WHERE user_id = ?", (st.session_state.user_id,))
+        conn.commit()
+        st.session_state.current_chat_id = None
+        st.session_state.messages = []
+        st.rerun()
 
 # ----------------- ГОРНА ЛЕНТА: МОДЕЛ, ИСТОРИЯ И ПРОФИЛ -----------------
 col_model, col_chats, col_spacer, col_auth = st.columns([2.5, 2.2, 2.3, 3])
@@ -247,12 +338,23 @@ with col_chats:
                 st.session_state.messages = []
                 st.rerun()
             st.divider()
+            
             c.execute("SELECT id, title FROM chats WHERE user_id = ? ORDER BY id DESC", (st.session_state.user_id,))
             user_chats = c.fetchall()
+            
             if user_chats:
                 for ch in user_chats:
-                    if st.button(f"💬 {ch[1]}", key=f"chat_{ch[0]}", use_container_width=True):
-                        load_chat(ch[0])
+                    col_t, col_d = st.columns([4, 1])
+                    with col_t:
+                        if st.button(f"💬 {ch[1]}", key=f"chat_{ch[0]}", use_container_width=True):
+                            load_chat(ch[0])
+                    with col_d:
+                        if st.button("🗑️", key=f"del_{ch[0]}", help="Изтрий този чат"):
+                            delete_single_chat(ch[0])
+                
+                st.divider()
+                if st.button("⚠️ Изтрий цялата история", use_container_width=True):
+                    delete_all_user_chats()
             else:
                 st.caption("Нямате запазени чатове.")
     else:
@@ -341,7 +443,7 @@ for msg in st.session_state.messages:
                 st.info(f"📄 **Прикачен документ:** `{msg.get('file_name', 'документ')}`")
         st.markdown(msg["content"])
 
-# ----------------- КУТИЯ ЗА ПИСАНЕ -----------------
+# ----------------- КУТИЯ ЗА ПИСАНЕ И БУТОНИ -----------------
 bar_placeholder = "Продължи разговора" if st.session_state.messages else "Попитай нещо"
 
 def submit_action():
@@ -384,7 +486,7 @@ with st.container(border=True):
 
     with col_dots:
         with st.popover("", icon=":material/more_horiz:", help="Опции"):
-            if st.button("🗑️ Изчисти този чат"):
+            if st.button("🗑️ Изчисти този екран"):
                 st.session_state.messages = []
                 st.session_state.attached_file = None
                 st.session_state.pending_submit = None
@@ -402,7 +504,7 @@ with st.container(border=True):
     with col_send:
         st.button("", icon=":material/arrow_upward:", on_click=submit_action, help="Изпрати")
 
-# ----------------- ИЗПРАЩАНЕ И ЗАПАЗВАНЕ В ПРОФИЛА -----------------
+# ----------------- ИЗПРАЩАНЕ И ЗАПАЗВАНЕ -----------------
 if st.session_state.pending_submit:
     data = st.session_state.pending_submit
     st.session_state.pending_submit = None
@@ -425,7 +527,6 @@ if st.session_state.pending_submit:
     }
     st.session_state.messages.append(user_msg_data)
 
-    # Ако потребителят е влязъл в профил, създаваме/свързваме чат в базата данни
     if st.session_state.user_id:
         if not st.session_state.current_chat_id:
             chat_title = prompt_text[:28] + "..." if len(prompt_text) > 28 else (prompt_text or "Нов разговор")
@@ -487,7 +588,6 @@ if st.session_state.pending_submit:
                     message_placeholder.markdown(reply_text)
                     st.session_state.messages.append({"role": "assistant", "content": reply_text})
 
-                    # Запазване на отговора в базата данни за този потребител
                     if st.session_state.user_id and st.session_state.current_chat_id:
                         c.execute("""
                             INSERT INTO messages (chat_id, role, content, file_name, file_type, file_bytes)
