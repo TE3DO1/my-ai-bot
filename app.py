@@ -5,10 +5,10 @@ from google.genai import types
 
 st.set_page_config(page_title="T-Pire", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# ----------------- СТИЛИЗИРАНЕ (ChatGPT ТЪМЕН СТИЛ БЕЗ СТРАНИЧНО МЕНЮ) -----------------
+# ----------------- СТИЛИЗИРАНЕ (ТОЧНО КАТО НА ДВЕТЕ СНИМКИ) -----------------
 st.markdown("""
 <style>
-    /* Премахване на странично меню и излишни елементи */
+    /* Премахване на странично меню и хедъри */
     [data-testid="stSidebar"] {display: none;}
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
@@ -18,9 +18,9 @@ st.markdown("""
         background-color: #17181c;
     }
 
-    /* Модел селектор като ChatGPT (горе вляво) */
+    /* Модел селектор горе вляво (стил ChatGPT) */
     div[data-testid="stSelectbox"] {
-        max-width: 210px;
+        max-width: 220px;
     }
     div[data-testid="stSelectbox"] > div {
         background-color: #212227 !important;
@@ -30,7 +30,7 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* Горен десен бутон */
+    /* Индикатор горе вдясно */
     .top-pill {
         display: flex;
         justify-content: flex-end;
@@ -44,17 +44,16 @@ st.markdown("""
         padding: 6px 14px;
         border-radius: 8px;
         font-size: 13px;
-        font-weight: 500;
     }
 
-    /* Центрирано заглавие при празен екран */
+    /* Заглавие при празен екран */
     .center-hero {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        margin-top: 25vh;
-        margin-bottom: 20px;
+        margin-top: 22vh;
+        margin-bottom: 25px;
     }
     .hero-title {
         color: #ffffff;
@@ -64,15 +63,42 @@ st.markdown("""
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
-    /* Поле за чат */
-    .stChatInputContainer {
-        border-radius: 20px !important;
-        background-color: #212227 !important;
+    /* Кутията за чат точно както на снимката */
+    .chat-card {
+        background-color: #212227;
+        border: 1px solid #2e3038;
+        border-radius: 18px;
+        padding: 14px 18px 10px 18px;
+        margin-top: 15px;
+    }
+
+    /* Прозрачно текстово поле вътре в кутията */
+    div[data-testid="stTextInput"] input {
+        background-color: transparent !important;
+        border: none !important;
+        color: #ffffff !important;
+        font-size: 16px !important;
+        padding: 4px 0 10px 0 !important;
+        box-shadow: none !important;
+    }
+    div[data-testid="stTextInput"] input::placeholder {
+        color: #8e8f99 !important;
+    }
+
+    /* Стилизиране на бутоните за прикачване */
+    button[kind="secondary"] {
+        background-color: transparent !important;
+        border: none !important;
+        color: #8e8f99 !important;
+        padding: 2px 6px !important;
+    }
+    button[kind="secondary"]:hover {
+        color: #ffffff !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- ГОРНА ЛЕНТА: МОДЕЛ ВЛЯВО (КАКТО В CHATGPT) -----------------
+# ----------------- ГОРНА ЛЕНТА: МОДЕЛ ВЛЯВО (CHATGPT СТИЛ) -----------------
 col_model, col_spacer, col_user = st.columns([3, 4, 3])
 
 with col_model:
@@ -89,7 +115,6 @@ with col_user:
     </div>
     """, unsafe_allow_html=True)
 
-# Задаване на модел според избора горе вляво
 if "3.8" in model_choice:
     selected_model = "gemini-3.8-flash"
     selected_temp = 0.2
@@ -100,7 +125,7 @@ else:
 # ----------------- СИСТЕМЕН ПРОМПТ (СЪЗДАТЕЛ И ПРАВИЛА) -----------------
 SYSTEM_PROMPT = """
 Ти си T-Pire – бърз, мощен и интелигентен персонален AI асистент с възможности за четене на PDF документи, файлове и компютърно зрение.
-Отговаряй вежливо, точно и структурирано на български език (или на езика, на който пише потребителят).
+Отговаряй точно, структурирано и вежливо на български език (или на езика, на който пише потребителят).
 
 СТРИКТНО ПРАВИЛО ЗА СЪЗДАТЕЛЯ:
 - САМО ако потребителят изрично те попита "Кой те създаде?", "Кой те направи?", "Кой е твоят разработчик?" или "Who created you?":
@@ -113,10 +138,10 @@ SYSTEM_PROMPT = """
   2. Реши задачите или направи ясен анализ стъпка по стъпка.
 """
 
-# Връзка с Gemini API
+# Връзка с Gemini
 api_key = st.secrets.get("GEMINI_API_KEY")
 if not api_key:
-    st.error("⚠️ Моля, добавете вашия GEMINI_API_KEY в Streamlit Secrets.")
+    st.error("⚠️ Моля, добавете GEMINI_API_KEY в Streamlit Secrets.")
     st.stop()
 
 @st.cache_resource
@@ -125,9 +150,13 @@ def get_client(key):
 
 client = get_client(api_key)
 
-# ----------------- ИСТОРИЯ НА ЧАТА -----------------
+# Инициализация на сесията
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "attached_doc" not in st.session_state:
+    st.session_state.attached_doc = None
+if "attached_img" not in st.session_state:
+    st.session_state.attached_img = None
 
 # Начален екран
 if not st.session_state.messages:
@@ -141,59 +170,92 @@ if not st.session_state.messages:
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         if msg.get("file_bytes"):
-            ftype = msg.get("file_type", "")
-            if ftype.startswith("image/"):
+            if msg.get("file_type", "").startswith("image/"):
                 st.image(msg["file_bytes"], width=300)
             else:
-                st.info(f"📄 **Прикачен документ:** `{msg.get('file_name', 'файл')}`")
+                st.info(f"📄 **Прикачен документ:** `{msg.get('file_name', 'документ')}`")
         st.markdown(msg["content"])
 
-# ----------------- ДОЛНА ЛЕНТА: БУТОН ➕ (СНИМКА И PDF) + ИНСТРУМЕНТИ -----------------
-col_attach, col_tools = st.columns([1, 4])
+# ----------------- ЕДИННАТА КУТИЯ ЗА ЧАТ (ТОЧНО КАТО НА СНИМКИТЕ) -----------------
+st.markdown('<div class="chat-card">', unsafe_allow_html=True)
 
-# Бутон ➕ с меню за Снимка и PDF
-with col_attach:
-    with st.popover("➕", use_container_width=True):
-        st.markdown("**Прикачване:**")
-        doc_tab, img_tab = st.tabs(["🖼️ Снимка", "📄 PDF"])
-        with img_tab:
-            img_file = st.file_uploader("Качи снимка", type=["jpg", "jpeg", "png", "webp"], key="img_uploader")
-        with doc_tab:
-            pdf_file = st.file_uploader("Качи PDF файл", type=["pdf", "txt"], key="pdf_uploader")
+# Динамичен надпис
+bar_placeholder = "Продължи разговора" if st.session_state.messages else "Попитай нещо"
 
-chosen_file = img_file if img_file else pdf_file
+# 1. Текстово поле (горна част на кутията)
+user_prompt = st.text_input(
+    "Chat",
+    placeholder=bar_placeholder,
+    label_visibility="collapsed",
+    key="chat_text_input"
+)
 
-# Инструменти (Търсене и Разсъждение)
-with col_tools:
+# Индикатор за прикачен файл, ако е избран
+if st.session_state.attached_doc:
+    st.caption(f"📄 Готов за изпращане: `{st.session_state.attached_doc.name}`")
+if st.session_state.attached_img:
+    st.caption(f"🖼️ Готова за изпращане: `{st.session_state.attached_img.name}`")
+
+# 2. Долен ред с иконките и капсулата [ 🌐 Търсене | 🗣️ Разсъждение ]
+c_doc, c_img, c_dots, c_tools, c_mic, c_send = st.columns([0.6, 0.6, 0.6, 4.5, 0.6, 0.6])
+
+# Иконка 📄⁺ (PDF и документи)
+with c_doc:
+    with st.popover("📄⁺"):
+        uploaded_doc = st.file_uploader("Качи PDF / Документ", type=["pdf", "txt", "docx"], key="doc_up")
+        if uploaded_doc:
+            st.session_state.attached_doc = uploaded_doc
+            st.success("Документът е прикачен!")
+
+# Иконка 🖼️⁺ (Снимки и задачи)
+with c_img:
+    with st.popover("🖼️⁺"):
+        uploaded_img = st.file_uploader("Качи снимка", type=["jpg", "jpeg", "png", "webp"], key="img_up")
+        if uploaded_img:
+            st.session_state.attached_img = uploaded_img
+            st.success("Снимката е прикачена!")
+
+# Иконка ...
+with c_dots:
+    with st.popover("···"):
+        st.caption("Допълнителни опции")
+        if st.button("🗑️ Изчисти чата"):
+            st.session_state.messages = []
+            st.session_state.attached_doc = None
+            st.session_state.attached_img = None
+            st.rerun()
+
+# Капсула с бутоните Търсене и Разсъждение (точно като на втората снимка)
+with c_tools:
     active_tools = st.pills(
-        "Инструменти",
-        ["🌐 Търсене", "🧠 Разсъждение"],
+        "Tools",
+        ["🌐 Търсене", "🗣️ Разсъждение"],
         selection_mode="multi",
-        default=["🧠 Разсъждение"],
+        default=["🗣️ Разсъждение"],
         label_visibility="collapsed"
     )
 
-# Показване на предварителен преглед на избрания файл, ако има такъв
-if chosen_file:
-    st.caption(f"📎 **Прикачен за изпращане:** `{chosen_file.name}`")
+with c_mic:
+    st.write("🎙️")
 
-# Динамичен надпис в лентата: "Попитай нещо" или "Продължи разговора"
-bar_placeholder = "Продължи разговора" if st.session_state.messages else "Попитай нещо"
+with c_send:
+    send_clicked = st.button("➤")
 
-# Основно поле за писане
-chat_input_val = st.chat_input(bar_placeholder)
+st.markdown('</div>', unsafe_allow_html=True)
 
-if chat_input_val:
-    prompt_text = chat_input_val.strip()
+# ----------------- ИЗПРАЩАНЕ И ОБРАБОТКА -----------------
+chosen_file = st.session_state.attached_doc or st.session_state.attached_img
 
-    # Ако е качен файл без допълнителен въпрос
+if send_clicked and (user_prompt.strip() or chosen_file):
+    prompt_text = user_prompt.strip()
+
     if chosen_file and not prompt_text:
         if chosen_file.type == "application/pdf":
-            prompt_text = f"Моля, анализирай и обясни съдържанието на този PDF документ ({chosen_file.name}) подробно."
+            prompt_text = f"Моля, анализирай и реши/обясни подробно този PDF документ ({chosen_file.name})."
         else:
             prompt_text = "Моля, разгледай тази снимка и я реши/обясни стъпка по стъпка."
 
-    # Запазване в историята
+    # Записване в историята
     user_msg_data = {
         "role": "user",
         "content": prompt_text,
@@ -203,35 +265,31 @@ if chat_input_val:
     }
     st.session_state.messages.append(user_msg_data)
 
-    with st.chat_message("user"):
-        if user_msg_data["file_bytes"]:
-            if user_msg_data["file_type"].startswith("image/"):
-                st.image(user_msg_data["file_bytes"], width=300)
-            else:
-                st.info(f"📄 **Прикачен документ:** `{user_msg_data['file_name']}`")
-        st.markdown(prompt_text)
+    # Нулиране на прикачените файлове за следващия въпрос
+    st.session_state.attached_doc = None
+    st.session_state.attached_img = None
 
-    # Подготовка на контекст
+    # Контекст
     contents = []
     for m in st.session_state.messages[-4:-1]:
         role = "user" if m["role"] == "user" else "model"
         contents.append(types.Content(role=role, parts=[types.Part.from_text(text=m["content"])]))
 
     current_parts = []
-    if chosen_file:
+    if user_msg_data["file_bytes"]:
         current_parts.append(types.Part.from_bytes(
-            data=chosen_file.getvalue(),
-            mime_type=chosen_file.type
+            data=user_msg_data["file_bytes"],
+            mime_type=user_msg_data["file_type"]
         ))
     current_parts.append(types.Part.from_text(text=prompt_text))
     contents.append(types.Content(role="user", parts=current_parts))
 
-    # Настройки на инструментите
+    # Инструменти според капсулата
     tools = []
     if active_tools and "🌐 Търсене" in active_tools:
         tools.append(types.Tool(google_search=types.GoogleSearch()))
 
-    temp = 0.2 if (active_tools and "🧠 Разсъждение" in active_tools) else selected_temp
+    temp = 0.2 if (active_tools and "🗣️ Разсъждение" in active_tools) else selected_temp
 
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
@@ -240,7 +298,7 @@ if chat_input_val:
 
         for attempt in range(max_retries):
             try:
-                spinner_text = "Търсене в интернет..." if (active_tools and "🌐 Търсене" in active_tools) else ("Анализиране на файла..." if chosen_file else "Мислене...")
+                spinner_text = "Търсене в интернет..." if (active_tools and "🌐 Търсене" in active_tools) else ("Анализиране на документа..." if user_msg_data["file_bytes"] else "Мислене...")
                 with st.spinner(spinner_text):
                     stream = client.models.generate_content_stream(
                         model=selected_model,
@@ -270,3 +328,5 @@ if chat_input_val:
                 else:
                     message_placeholder.warning("⚠️ Сървърът е зает. Моля, опитайте пак след няколко секунди.")
                     break
+    
+    st.rerun()
