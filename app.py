@@ -80,7 +80,7 @@ def extract_prompt(text: str) -> str:
     return text.strip()
 
 # ----------------- CHAT INPUT -----------------
-if prompt := st.chat_input("Ask a question, upload a picture, or type '/image a dog'..."):
+if prompt := st.chat_input("Ask T-Pire anything..."):
     st.session_state.messages.append({"role": "user", "type": "text", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
