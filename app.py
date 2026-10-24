@@ -62,7 +62,7 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # ----------------- CHAT INPUT -----------------
-if prompt := st.chat_input("Ask a question or upload a photo to solve..."):
+if prompt := st.chat_input("Ask T-Pire anything..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
