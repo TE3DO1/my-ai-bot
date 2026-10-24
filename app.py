@@ -1,24 +1,28 @@
 import streamlit as st
+import time
 from google import genai
 from google.genai import types
 
-st.set_page_config(page_title="T-Pire", page_icon="🤖")
+st.set_page_config(page_title="Ask T-Pire", page_icon="⚡", layout="centered")
 
-st.title("🤖 Ask T-Pire")
+st.title("⚡ Ask T-Pire")
 
-# Check for API key in Streamlit Secrets, or let user type it in sidebar
+# Check API Key
 api_key = st.secrets.get("GEMINI_API_KEY")
-
 if not api_key:
     api_key = st.sidebar.text_input("Enter Gemini API Key", type="password")
     if not api_key:
-        st.warning("👈 Please enter your Gemini API Key in the left sidebar to start chatting.")
+        st.warning("👈 Please enter your Gemini API Key in the sidebar.")
         st.stop()
 
-# Initialize Gemini Client
-client = genai.Client(api_key=api_key)
+# Reuse client
+@st.cache_resource
+def get_client(key):
+    return genai.Client(api_key=key)
 
-# Store chat history
+client = get_client(api_key)
+
+# Initialize conversation memory
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -27,32 +31,57 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# User prompt input
-if prompt := st.chat_input("Ask me anything..."):
-    # Display user question
+# User chat input
+if prompt := st.chat_input("Ask T-Pire anything..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Format history for Gemini
+    # Only send recent turns to stay fast and save tokens
+    recent_messages = st.session_state.messages[-4:]
     contents = []
-    for m in st.session_state.messages:
+    for m in recent_messages:
         role = "user" if m["role"] == "user" else "model"
         contents.append(types.Content(role=role, parts=[types.Part.from_text(text=m["content"])]))
 
-    # Generate answer
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
+        message_placeholder = st.empty()
+        
+        # Automatic retry loop (tries up to 3 times on 503 spikes)
+        max_retries = 3
+        success = False
+        reply_text = ""
+
+        for attempt in range(max_retries):
             try:
-                response = client.models.generate_content(
-                    model="gemini-3.8-flash",
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction="You are a smart, helpful personal AI assistant.",
-                        temperature=0.7,
+                with st.spinner("Connecting to T-Pire..." if attempt == 0 else f"Server busy, retrying ({attempt+1}/{max_retries})..."):
+                    stream = client.models.generate_content_stream(
+                        model="gemini-3.5-flash-lite",
+                        contents=contents,
+                        config=types.GenerateContentConfig(
+                            system_instruction="You are T-Pire. Be brief, fast, and conversational.",
+                            temperature=0.6,
+                            max_output_tokens=800,
+                        ),
                     )
-                )
-                st.markdown(response.text)
-                st.session_state.messages.append({"role": "assistant", "content": response.text})
+                    
+                    # Stream tokens live
+                    for chunk in stream:
+                        if chunk.text:
+                            reply_text += chunk.text
+                            message_placeholder.markdown(reply_text + "▌")
+                    
+                    message_placeholder.markdown(reply_text)
+                    st.session_state.messages.append({"role": "assistant", "content": reply_text})
+                    success = True
+                    break
+
             except Exception as e:
-                st.error(f"Error: {e}")
+                err_str = str(e)
+                # If Google throws a 503 traffic spike, pause briefly and retry
+                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < max_retries - 1:
+                    time.sleep(1.5 * (attempt + 1))  # Wait 1.5s, then 3s
+                    continue
+                else:
+                    message_placeholder.warning("⚠️ Google's servers are experiencing high traffic right now. Please press Enter to try your message again.")
+                    break
