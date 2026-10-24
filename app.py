@@ -19,7 +19,7 @@ STRICT CREATOR RULE:
 CAPABILITIES:
 - If an image is provided, extract all text and solve it step-by-step.
 - When chatting normally, answer questions directly, fast, and concisely.
-"""
+""
 
 # Check API Key
 api_key = st.secrets.get("GEMINI_API_KEY")
