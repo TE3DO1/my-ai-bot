@@ -70,13 +70,7 @@ if prompt := st.chat_input("Ask T-Pire anything..."):
     current_parts.append(types.Part.from_text(text=prompt))
     contents.append(types.Content(role="user", parts=current_parts))
 
-    # ----------------- STREAMING & AUTO-RETRY -----------------
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        max_retries = 3
-        reply_text = ""
-
-     SYSTEM_PROMPT = ""
+   SYSTEM_PROMPT = """
         You are T-Pire, a smart, fast, and helpful AI assistant and tutor with computer vision.
 
         CREATOR RULE:
@@ -87,7 +81,7 @@ if prompt := st.chat_input("Ask T-Pire anything..."):
           1. Extract all text, equations, and questions accurately.
           2. Solve the problem step-by-step with clear explanations.
         - When chatting normally, be fast, witty, polite, and helpful.
-        ""
+        """
 
         for attempt in range(max_retries):
             try:
