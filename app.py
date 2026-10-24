@@ -5,7 +5,7 @@ from google.genai import types
 
 st.set_page_config(page_title="T-Pire", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# ----------------- СТИЛИЗИРАНЕ (МОБИЛЕН И ДЕСКТОП ДИЗАЙН) -----------------
+# ----------------- СТИЛИЗИРАНЕ (ТОЧНО КАТО НА СНИМКАТА + АДАПТИВНО ДВИЖЕНИЕ) -----------------
 css_styles = """
 <style>
     [data-testid="stSidebar"] {display: none;}
@@ -17,6 +17,7 @@ css_styles = """
         background-color: #17181c;
     }
 
+    /* Модел селектор горе вляво */
     div[data-testid="stSelectbox"] {
         max-width: 210px;
     }
@@ -48,7 +49,7 @@ css_styles = """
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        margin-top: 22vh;
+        margin-top: 20vh;
         margin-bottom: 25px;
     }
     .hero-title {
@@ -59,7 +60,8 @@ css_styles = """
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
-    [data-testid="stVerticalBlockBorderWrapper"] {
+    /* ЕДИННАТА ТЪМНА КУТИЯ ЗА ПИСАНЕ */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #212227 !important;
         border: 1px solid #2e3038 !important;
         border-radius: 18px !important;
@@ -78,17 +80,20 @@ css_styles = """
         color: #8e8f99 !important;
     }
 
+    /* Векторни икони за файловете */
     div[data-testid="stPopover"] button {
         background-color: transparent !important;
         border: none !important;
         color: #8e8f99 !important;
-        padding: 2px 6px !important;
-        font-size: 16px !important;
+        padding: 2px 4px !important;
+        border-radius: 8px !important;
     }
     div[data-testid="stPopover"] button:hover {
+        background-color: #2c2d35 !important;
         color: #ffffff !important;
     }
 
+    /* Капсула [ 🌐 Търсене | 🗣️ Разсъждение ] */
     div[data-testid="stPills"] button {
         background-color: #26272e !important;
         border: 1px solid #33353e !important;
@@ -103,17 +108,19 @@ css_styles = """
         color: #ffffff !important;
     }
 
-    .send-btn button {
+    /* Бутон за изпращане */
+    div[data-testid="stButton"] button {
         background-color: transparent !important;
         border: none !important;
         color: #8e8f99 !important;
-        font-size: 18px !important;
-        padding: 2px 8px !important;
+        border-radius: 8px !important;
+        padding: 2px 4px !important;
     }
-    .send-btn button:hover {
+    div[data-testid="stButton"] button:hover {
         color: #ffffff !important;
     }
 
+    /* МОБИЛНО ПОДРЕЖДАНЕ НА ЕДИН РЕД */
     @media (max-width: 768px) {
         div[data-testid="stHorizontalBlock"] {
             display: flex !important;
@@ -132,6 +139,30 @@ css_styles = """
 </style>
 """
 st.markdown(css_styles, unsafe_allow_html=True)
+
+# ----------------- СЛИЗАНЕ НА БАРА НАДОЛУ ПРИ СЪОБЩЕНИЕ -----------------
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Ако вече има съобщения в разговора, фиксираме бара най-долу (точно както в ChatGPT)
+if st.session_state.messages:
+    st.markdown("""
+    <style>
+        .main .block-container {
+            padding-bottom: 160px !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(input[aria-label="Chat"]) {
+            position: fixed !important;
+            bottom: 20px !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            width: 94% !important;
+            max-width: 768px !important;
+            z-index: 9999 !important;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6) !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
 # ----------------- ГОРНА ЛЕНТА: МОДЕЛ ВЛЯВО -----------------
 col_model, col_spacer, col_user = st.columns([3, 4, 3])
@@ -185,9 +216,7 @@ def get_client(key):
 
 client = get_client(api_key)
 
-# ----------------- ИНИЦИАЛИЗАЦИЯ -----------------
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# ----------------- ИНИЦИАЛИЗАЦИЯ НА СЪСТОЯНИЕТО -----------------
 if "input_key" not in st.session_state:
     st.session_state.input_key = 0
 if "attached_file" not in st.session_state:
@@ -195,7 +224,7 @@ if "attached_file" not in st.session_state:
 if "pending_submit" not in st.session_state:
     st.session_state.pending_submit = None
 
-# Начален екран
+# Начален екран (показва се в средата, ако няма съобщения)
 if not st.session_state.messages:
     st.markdown("""
     <div class="center-hero">
@@ -203,7 +232,7 @@ if not st.session_state.messages:
     </div>
     """, unsafe_allow_html=True)
 
-# История на съобщенията
+# Показване на историята
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         if msg.get("file_bytes"):
@@ -213,7 +242,7 @@ for msg in st.session_state.messages:
                 st.info(f"📄 **Прикачен документ:** `{msg.get('file_name', 'документ')}`")
         st.markdown(msg["content"])
 
-# ----------------- ЕДИННАТА КУТИЯ ЗА ПИСАНЕ И БУТОНИ -----------------
+# ----------------- ЕДИННАТА КУТИЯ ЗА ПИСАНЕ -----------------
 bar_placeholder = "Продължи разговора" if st.session_state.messages else "Попитай нещо"
 
 def submit_action():
@@ -238,30 +267,35 @@ with st.container(border=True):
     if st.session_state.attached_file:
         st.caption(f"📎 Готов за изпращане: `{st.session_state.attached_file.name}`")
 
-    col_doc, col_img, col_dots, col_tools, col_spacer, col_send = st.columns([0.6, 0.6, 0.6, 3.8, 1.2, 0.6])
+    # ДОЛЕН РЕД: ВЕКТОРНИ ИКОНИ КАТО НА СНИМКАТА
+    col_doc, col_img, col_dots, col_tools, col_spacer, col_send = st.columns([0.5, 0.5, 0.5, 3.8, 1.2, 0.5])
 
+    # 1. Документ с плюсче (Material Icon)
     with col_doc:
-        with st.popover("📄⁺"):
+        with st.popover("", icon=":material/note_add:", help="Качи PDF / Текст"):
             pdf_upload = st.file_uploader("Качи PDF / Текст", type=["pdf", "txt"], key="up_pdf")
             if pdf_upload:
                 st.session_state.attached_file = pdf_upload
                 st.success("Прикачен!")
 
+    # 2. Снимка с плюсче (Material Icon)
     with col_img:
-        with st.popover("🖼️⁺"):
+        with st.popover("", icon=":material/add_photo_alternate:", help="Качи снимка"):
             img_upload = st.file_uploader("Качи снимка", type=["jpg", "jpeg", "png", "webp"], key="up_img")
             if img_upload:
                 st.session_state.attached_file = img_upload
                 st.success("Прикачена!")
 
+    # 3. Три точки в кутийка (Material Icon)
     with col_dots:
-        with st.popover("···"):
+        with st.popover("", icon=":material/more_horiz:", help="Опции"):
             if st.button("🗑️ Изчисти чата"):
                 st.session_state.messages = []
                 st.session_state.attached_file = None
                 st.session_state.pending_submit = None
                 st.rerun()
 
+    # 4. Капсулата [ 🌐 Търсене | 🗣️ Разсъждение ]
     with col_tools:
         active_tools = st.pills(
             "Инструменти",
@@ -271,12 +305,11 @@ with st.container(border=True):
             label_visibility="collapsed"
         )
 
+    # 5. Стрелка за изпращане
     with col_send:
-        st.markdown('<div class="send-btn">', unsafe_allow_html=True)
-        st.button("➤", on_click=submit_action)
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.button("", icon=":material/arrow_upward:", on_click=submit_action, help="Изпрати")
 
-# ----------------- ИЗПРАЩАНЕ И ОТГОВОР -----------------
+# ----------------- ИЗПРАЩАНЕ И ОБРАБОТКА НА СЪОБЩЕНИЕТО -----------------
 if st.session_state.pending_submit:
     data = st.session_state.pending_submit
     st.session_state.pending_submit = None
