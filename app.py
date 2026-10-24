@@ -5,20 +5,18 @@ from google.genai import types
 
 st.set_page_config(page_title="T-Pire", page_icon="⚡", layout="centered", initial_sidebar_state="collapsed")
 
-# ----------------- СТИЛИЗИРАНЕ (ТОЧНО КАТО НА СНИМКАТА) -----------------
+# ----------------- СТИЛИЗИРАНЕ (ChatGPT / Claude ТЪМЕН СТИЛ) -----------------
 st.markdown("""
 <style>
-    /* Скриване на стандартните ленти на Streamlit */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Тъмен изчистен фон */
     .stApp {
         background-color: #17181c;
     }
     
-    /* Бутон в горния десен ъгъл */
+    /* Бутон горе вдясно */
     .top-pill {
         display: flex;
         justify-content: flex-end;
@@ -33,7 +31,6 @@ st.markdown("""
         border-radius: 8px;
         font-size: 13px;
         font-weight: 500;
-        cursor: pointer;
     }
 
     /* Заглавие точно в центъра */
@@ -53,7 +50,7 @@ st.markdown("""
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
-    /* Поле за писане - стил ChatGPT/Claude */
+    /* Поле за писане */
     .stChatInputContainer {
         border-radius: 20px !important;
         background-color: #212227 !important;
@@ -61,7 +58,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Бутон в горния десен ъгъл (точно както на снимката)
+# Горен десен индикатор
 st.markdown("""
 <div class="top-pill">
     <div class="pill-content">T-Pire AI (съобщения: ∞)</div>
@@ -70,18 +67,18 @@ st.markdown("""
 
 # ----------------- СИСТЕМЕН ПРОМПТ (ПРАВИЛА И СЪЗДАТЕЛ) -----------------
 SYSTEM_PROMPT = """
-Ти си T-Pire – бърз, модерен и интелигентен персонален AI асистент с компютърно зрение.
-Отговаряй вежливо, точно и стегнато на български език (или на езика, на който пише потребителят).
+Ти си T-Pire – бърз, мощен и интелигентен персонален AI асистент с възможности за четене на PDF документи, файлове и компютърно зрение.
+Отговаряй вежливо, точно и структурирано на български език (или на езика, на който пише потребителят).
 
 СТРИКТНО ПРАВИЛО ЗА СЪЗДАТЕЛЯ:
-- САМО ако потребителят изрично те попита "Кой те създаде?", "Кой те направи?", "Кой е твоят създател/разработчик?" или "Who created you?":
+- САМО ако потребителят изрично те попита "Кой те създаде?", "Кой те направи?", "Кой е твоят разработчик?" или "Who created you?":
   Отговори гордо: "Създаден съм от 17-годишния тийнейджър Теодор Пимпирев!" (на английски: "I was created by 17-year-old teenager Teodor Pimpirev!").
 - За ВСИЧКИ ОСТАНАЛИ въпроси: НЕ споменавай Теодор Пимпирев и не се представяй. Отговаряй директно.
 
-ВЪЗМОЖНОСТИ ЗА СНИМКИ:
-- Когато получиш снимка (на задача, тест, формули или текст):
-  1. Разчети внимателно всичко от снимката.
-  2. Реши задачата подробно, ясно и стъпка по стъпка.
+ВЪЗМОЖНОСТИ ЗА PDF И ФАЙЛОВЕ:
+- Когато получиш PDF документ, файл или снимка:
+  1. Разчети подробно целия текст, страници, формули и въпроси в него.
+  2. Реши задачите или направи ясен синтез/анализ стъпка по стъпка.
 """
 
 # Проверка на API ключ
@@ -98,7 +95,7 @@ def get_client(key):
 
 client = get_client(api_key)
 
-# Странично меню за избор на режим
+# Странично меню
 st.sidebar.header("⚙️ Режим на AI")
 version_choice = st.sidebar.selectbox(
     "Избор на модел:",
@@ -109,18 +106,13 @@ version_choice = st.sidebar.selectbox(
     index=0
 )
 
-if "Умен" in version_choice:
-    selected_model = "gemini-3.8-flash"
-    selected_temp = 0.2
-else:
-    selected_model = "gemini-3.5-flash-lite"
-    selected_temp = 0.6
+selected_model = "gemini-3.8-flash" if "Умен" in version_choice else "gemini-3.5-flash-lite"
 
 # ----------------- ИСТОРИЯ НА СЪОБЩЕНИЯТА -----------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Ако чатът е празен, показва центрирания надпис като на снимката
+# Ако чатът е празен -> "Как мога да помогна?"
 if not st.session_state.messages:
     st.markdown("""
     <div class="center-hero">
@@ -128,35 +120,66 @@ if not st.session_state.messages:
     </div>
     """, unsafe_allow_html=True)
 
-# Показване на съобщенията
+# Показване на историята (включително качени снимки и PDF документи)
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
-        if "image" in msg and msg["image"]:
-            st.image(msg["image"], width=300)
+        if msg.get("file_bytes"):
+            ftype = msg.get("file_type", "")
+            if ftype.startswith("image/"):
+                st.image(msg["file_bytes"], width=300)
+            else:
+                st.info(f"📄 **Прикачен документ:** `{msg.get('file_name', 'документ')}`")
         st.markdown(msg["content"])
 
-# ----------------- ДОЛНА ЛЕНТА С КЛАМЕР (📎) ЗА СНИМКИ -----------------
+# ----------------- БУТОНИ ЗА ТЪРСЕНЕ И РАЗСЪЖДЕНИЕ (КАКТО НА СНИМКАТА) -----------------
+col_tools, _ = st.columns([3, 1])
+with col_tools:
+    active_tools = st.pills(
+        "Инструменти",
+        ["🌐 Търсене", "🧠 Разсъждение"],
+        selection_mode="multi",
+        default=["🧠 Разсъждение"],
+        label_visibility="collapsed"
+    )
+
+# Динамичен надпис в лентата: "Попитай нещо" или "Продължи разговора"
+bar_placeholder = "Продължи разговора" if st.session_state.messages else "Попитай нещо"
+
+# ----------------- ДОЛНА ЛЕНТА С ПОДДРЪЖКА НА PDF, TXT И СНИМКИ -----------------
 chat_input_val = st.chat_input(
-    "Попитай нещо",
+    bar_placeholder,
     accept_file=True,
-    file_type=["jpg", "jpeg", "png", "webp"]
+    file_type=["jpg", "jpeg", "png", "webp", "pdf", "txt"]
 )
 
 if chat_input_val:
     prompt_text = getattr(chat_input_val, "text", "") or ""
     uploaded_files = getattr(chat_input_val, "files", []) or []
 
+    # Ако е качен файл без допълнителен текст
     if uploaded_files and not prompt_text.strip():
-        prompt_text = "Моля, реши и обясни тази задача стъпка по стъпка."
+        f = uploaded_files[0]
+        if f.type == "application/pdf":
+            prompt_text = f"Моля, анализирай и реши/обясни съдържанието на този PDF документ ({f.name}) подробно."
+        else:
+            prompt_text = "Моля, разгледай и реши/обясни този файл стъпка по стъпка."
 
-    user_msg_data = {"role": "user", "content": prompt_text}
-    if uploaded_files:
-        user_msg_data["image"] = uploaded_files[0].getvalue()
-
+    # Запазване в историята
+    user_msg_data = {
+        "role": "user", 
+        "content": prompt_text,
+        "file_name": uploaded_files[0].name if uploaded_files else None,
+        "file_type": uploaded_files[0].type if uploaded_files else None,
+        "file_bytes": uploaded_files[0].getvalue() if uploaded_files else None
+    }
     st.session_state.messages.append(user_msg_data)
+
     with st.chat_message("user"):
-        if "image" in user_msg_data:
-            st.image(user_msg_data["image"], width=300)
+        if user_msg_data["file_bytes"]:
+            if user_msg_data["file_type"].startswith("image/"):
+                st.image(user_msg_data["file_bytes"], width=300)
+            else:
+                st.info(f"📄 **Прикачен документ:** `{user_msg_data['file_name']}`")
         st.markdown(prompt_text)
 
     # Подготовка на контекст за Gemini
@@ -167,14 +190,21 @@ if chat_input_val:
 
     current_parts = []
     if uploaded_files:
+        uf = uploaded_files[0]
         current_parts.append(types.Part.from_bytes(
-            data=uploaded_files[0].getvalue(),
-            mime_type=uploaded_files[0].type
+            data=uf.getvalue(),
+            mime_type=uf.type
         ))
     current_parts.append(types.Part.from_text(text=prompt_text))
     contents.append(types.Content(role="user", parts=current_parts))
 
-    # Извеждане на отговор с поток на думите
+    # Настройки на модела според избраните бутони
+    tools = []
+    if active_tools and "🌐 Търсене" in active_tools:
+        tools.append(types.Tool(google_search=types.GoogleSearch()))
+
+    temp = 0.2 if (active_tools and "🧠 Разсъждение" in active_tools) else 0.6
+
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         max_retries = 3
@@ -182,15 +212,16 @@ if chat_input_val:
 
         for attempt in range(max_retries):
             try:
-                spinner_msg = "Решаване на снимката..." if uploaded_files else "Мислене..."
-                with st.spinner(spinner_msg):
+                spinner_text = "Търсене в интернет..." if (active_tools and "🌐 Търсене" in active_tools) else ("Анализиране на документа..." if uploaded_files else "Мислене...")
+                with st.spinner(spinner_text):
                     stream = client.models.generate_content_stream(
                         model=selected_model,
                         contents=contents,
                         config=types.GenerateContentConfig(
                             system_instruction=SYSTEM_PROMPT,
-                            temperature=selected_temp,
-                            max_output_tokens=1500,
+                            temperature=temp,
+                            tools=tools if tools else None,
+                            max_output_tokens=2000,
                         ),
                     )
                     
@@ -209,5 +240,5 @@ if chat_input_val:
                     time.sleep(1.5 * (attempt + 1))
                     continue
                 else:
-                    message_placeholder.warning("⚠️ Сървърът е натоварен. Моля, опитайте пак след малко.")
+                    message_placeholder.warning("⚠️ Сървърът е натоварен. Моля, опитайте пак след няколко секунди.")
                     break
