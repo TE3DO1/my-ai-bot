@@ -5,7 +5,7 @@ from google.genai import types
 
 st.set_page_config(page_title="Ask T-Pire", page_icon="⚡", layout="centered")
 
-st.title("⚡ Ask T-Pire (Vision & Solver)")
+st.title("⚡ Ask T-Pire (Chat, Vision & Image Generator)")
 
 # Check API Key
 api_key = st.secrets.get("GEMINI_API_KEY")
@@ -22,14 +22,13 @@ def get_client(key):
 
 client = get_client(api_key)
 
-# ----------------- SIDEBAR: IMAGE UPLOADER -----------------
-st.sidebar.header("📸 Picture Solver")
+# ----------------- SIDEBAR -----------------
+st.sidebar.header("📸 Picture Solver (Vision)")
 uploaded_file = st.sidebar.file_uploader(
-    "Upload a picture (math, text, notes, forms)", 
+    "Upload a picture to read or solve", 
     type=["jpg", "jpeg", "png", "webp"]
 )
 
-# Preview and prepare image if provided
 image_part = None
 if uploaded_file is not None:
     st.sidebar.image(uploaded_file, caption="Uploaded Picture", use_container_width=True)
@@ -37,83 +36,137 @@ if uploaded_file is not None:
         data=uploaded_file.getvalue(),
         mime_type=uploaded_file.type
     )
-    st.sidebar.info("💡 Type your question below, or type 'solve this' to solve the image.")
 
-# ----------------- CONVERSATION MEMORY -----------------
+st.sidebar.markdown("---")
+st.sidebar.header("🎨 Image Generator")
+st.sidebar.caption("Type `/image <description>` in the chat to generate any picture using Imagen 3!")
+
+# ----------------- CHAT HISTORY -----------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display conversation history
+# Display previous conversation (handles both text & generated images)
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+        if msg.get("type") == "image":
+            st.image(msg["content"], caption=msg.get("caption", "Generated Image"))
+        else:
+            st.markdown(msg["content"])
+
+# ----------------- HELPER FUNCTIONS -----------------
+def is_image_request(text: str) -> bool:
+    t = text.strip().lower()
+    return (
+        t.startswith("/image") or 
+        t.startswith("/draw") or 
+        t.startswith("generate an image") or 
+        t.startswith("draw an image") or
+        t.startswith("create an image") or
+        t.startswith("draw a") or
+        t.startswith("draw me")
+    )
+
+def extract_prompt(text: str) -> str:
+    prefixes = [
+        "/image", "/draw", "generate an image of", "generate an image",
+        "create an image of", "create an image", "draw an image of",
+        "draw a", "draw me an image of", "draw me", "draw"
+    ]
+    t_lower = text.strip().lower()
+    for p in prefixes:
+        if t_lower.startswith(p):
+            return text.strip()[len(p):].strip(" :,-")
+    return text.strip()
 
 # ----------------- CHAT INPUT -----------------
-if prompt := st.chat_input("Ask T-Pire anything..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
+if prompt := st.chat_input("Ask a question, upload a photo, or type '/image a cyberpunk city'..."):
+    # Display user input
+    st.session_state.messages.append({"role": "user", "type": "text", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Build history context
-    recent_messages = st.session_state.messages[-4:-1]
-    contents = []
-    
-    # Add previous chat history
-    for m in recent_messages:
-        role = "user" if m["role"] == "user" else "model"
-        contents.append(types.Content(role=role, parts=[types.Part.from_text(text=m["content"])]))
-
-    # Build current turn with image (if uploaded) and question
-    current_parts = []
-    if image_part:
-        current_parts.append(image_part)
-    current_parts.append(types.Part.from_text(text=prompt))
-    contents.append(types.Content(role="user", parts=current_parts))
-
-    # ----------------- STREAMING & AUTO-RETRY -----------------
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        max_retries = 3
-        reply_text = ""
-
-        SYSTEM_PROMPT = """
-        You are T-Pire, an expert AI tutor and problem solver with advanced vision capabilities.
-        When an image is provided:
-        1. Accurately read and extract all printed or handwritten text, equations, or data from the picture.
-        2. Solve the problem thoroughly and step-by-step, explaining the reasoning clearly.
-        3. Double-check your calculations and results before finalizing.
-        If no image is provided, answer normally in a helpful, conversational manner.
-        """
-
-        for attempt in range(max_retries):
-            try:
-                with st.spinner("Analyzing image and solving..." if image_part else "Thinking..."):
-                    stream = client.models.generate_content_stream(
-                        model="gemini-3.5-flash-lite",
-                        contents=contents,
-                        config=types.GenerateContentConfig(
-                            system_instruction=SYSTEM_PROMPT,
-                            temperature=0.4,  # Lower temperature for higher accuracy in problem solving
-                            max_output_tokens=1500,
-                        ),
+    # CASE 1: USER WANTS TO GENERATE A PICTURE
+    if is_image_request(prompt):
+        img_prompt = extract_prompt(prompt)
+        with st.chat_message("assistant"):
+            with st.spinner(f"🎨 Generating: '{img_prompt}'..."):
+                try:
+                    result = client.models.generate_images(
+                        model="imagen-3.0-generate-002",
+                        prompt=img_prompt,
+                        config=dict(number_of_images=1, aspect_ratio="1:1")
                     )
                     
-                    # Stream response word-by-word
-                    for chunk in stream:
-                        if chunk.text:
-                            reply_text += chunk.text
-                            message_placeholder.markdown(reply_text + "▌")
-                    
-                    message_placeholder.markdown(reply_text)
-                    st.session_state.messages.append({"role": "assistant", "content": reply_text})
-                    break
+                    if result.generated_images:
+                        img_bytes = result.generated_images[0].image.image_bytes
+                        st.image(img_bytes, caption=f"🎨 '{img_prompt}'")
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "type": "image",
+                            "content": img_bytes,
+                            "caption": f"🎨 '{img_prompt}'"
+                        })
+                    else:
+                        st.warning("Could not generate the image. Please try a different description.")
+                except Exception as e:
+                    st.error(f"Image generation error: {e}")
 
-            except Exception as e:
-                err_str = str(e)
-                # Handle 503 traffic spikes automatically
-                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < max_retries - 1:
-                    time.sleep(1.5 * (attempt + 1))
-                    continue
-                else:
-                    message_placeholder.warning("⚠️ Server busy right now. Please press Enter to ask again.")
-                    break
+    # CASE 2: NORMAL CHAT OR VISION SOLVER
+    else:
+        # Filter previous text messages for conversation context
+        text_messages = [m for m in st.session_state.messages if m.get("type", "text") == "text"]
+        recent_messages = text_messages[-4:-1]
+        contents = []
+
+        for m in recent_messages:
+            role = "user" if m["role"] == "user" else "model"
+            contents.append(types.Content(role=role, parts=[types.Part.from_text(text=m["content"])]))
+
+        current_parts = []
+        if image_part:
+            current_parts.append(image_part)
+        current_parts.append(types.Part.from_text(text=prompt))
+        contents.append(types.Content(role="user", parts=current_parts))
+
+        with st.chat_message("assistant"):
+            message_placeholder = st.empty()
+            max_retries = 3
+            reply_text = ""
+
+            SYSTEM_PROMPT = """
+            You are T-Pire, an expert AI assistant and problem solver with vision capabilities.
+            When an image is provided:
+            1. Read and extract all text, equations, or problems from the picture.
+            2. Solve the problem thoroughly step-by-step.
+            If no image is provided, respond helpfully, fast, and conversationally.
+            """
+
+            for attempt in range(max_retries):
+                try:
+                    with st.spinner("Analyzing image and solving..." if image_part else "Thinking..."):
+                        stream = client.models.generate_content_stream(
+                            model="gemini-3.5-flash-lite",
+                            contents=contents,
+                            config=types.GenerateContentConfig(
+                                system_instruction=SYSTEM_PROMPT,
+                                temperature=0.5,
+                                max_output_tokens=1500,
+                            ),
+                        )
+                        for chunk in stream:
+                            if chunk.text:
+                                reply_text += chunk.text
+                                message_placeholder.markdown(reply_text + "▌")
+
+                        message_placeholder.markdown(reply_text)
+                        st.session_state.messages.append({"role": "assistant", "type": "text", "content": reply_text})
+                        break
+
+                except Exception as e:
+                    err_str = str(e)
+                    if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < max_retries - 1:
+                        time.sleep(1.5 * (attempt + 1))
+                        continue
+                    else:
+                        message_placeholder.warning("⚠️ Server busy right now. Please try again.")
+                        break
