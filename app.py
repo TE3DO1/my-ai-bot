@@ -5,7 +5,7 @@ from google.genai import types
 
 st.set_page_config(page_title="Ask T-Pire", page_icon="⚡", layout="centered")
 
-st.title("⚡ Ask T-Pire")
+st.title("⚡ Ask T-Pire (Vision & Solver)")
 
 # Check API Key
 api_key = st.secrets.get("GEMINI_API_KEY")
@@ -15,57 +15,90 @@ if not api_key:
         st.warning("👈 Please enter your Gemini API Key in the sidebar.")
         st.stop()
 
-# Reuse client
+# Reuse connection
 @st.cache_resource
 def get_client(key):
     return genai.Client(api_key=key)
 
 client = get_client(api_key)
 
-# Initialize conversation memory
+# ----------------- SIDEBAR: IMAGE UPLOADER -----------------
+st.sidebar.header("📸 Picture Solver")
+uploaded_file = st.sidebar.file_uploader(
+    "Upload a picture (math, text, notes, forms)", 
+    type=["jpg", "jpeg", "png", "webp"]
+)
+
+# Preview and prepare image if provided
+image_part = None
+if uploaded_file is not None:
+    st.sidebar.image(uploaded_file, caption="Uploaded Picture", use_container_width=True)
+    image_part = types.Part.from_bytes(
+        data=uploaded_file.getvalue(),
+        mime_type=uploaded_file.type
+    )
+    st.sidebar.info("💡 Type your question below, or type 'solve this' to solve the image.")
+
+# ----------------- CONVERSATION MEMORY -----------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display previous conversation messages
+# Display conversation history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# User chat input
-if prompt := st.chat_input("Ask T-Pire anything..."):
+# ----------------- CHAT INPUT -----------------
+if prompt := st.chat_input("Ask anything or type 'solve this picture'..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Only send recent turns to stay fast and save tokens
-    recent_messages = st.session_state.messages[-4:]
+    # Build history context
+    recent_messages = st.session_state.messages[-4:-1]
     contents = []
+    
+    # Add previous chat history
     for m in recent_messages:
         role = "user" if m["role"] == "user" else "model"
         contents.append(types.Content(role=role, parts=[types.Part.from_text(text=m["content"])]))
 
+    # Build current turn with image (if uploaded) and question
+    current_parts = []
+    if image_part:
+        current_parts.append(image_part)
+    current_parts.append(types.Part.from_text(text=prompt))
+    contents.append(types.Content(role="user", parts=current_parts))
+
+    # ----------------- STREAMING & AUTO-RETRY -----------------
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
-        
-        # Automatic retry loop (tries up to 3 times on 503 spikes)
         max_retries = 3
-        success = False
         reply_text = ""
+
+        SYSTEM_PROMPT = """
+        You are T-Pire, an expert AI tutor and problem solver with advanced vision capabilities.
+        When an image is provided:
+        1. Accurately read and extract all printed or handwritten text, equations, or data from the picture.
+        2. Solve the problem thoroughly and step-by-step, explaining the reasoning clearly.
+        3. Double-check your calculations and results before finalizing.
+        If no image is provided, answer normally in a helpful, conversational manner.
+        """
 
         for attempt in range(max_retries):
             try:
-                with st.spinner("Connecting to T-Pire..." if attempt == 0 else f"Server busy, retrying ({attempt+1}/{max_retries})..."):
+                with st.spinner("Analyzing image and solving..." if image_part else "Thinking..."):
                     stream = client.models.generate_content_stream(
                         model="gemini-3.5-flash-lite",
                         contents=contents,
                         config=types.GenerateContentConfig(
-                            system_instruction="You are T-Pire. Be brief, fast, and conversational.",
-                            temperature=0.6,
-                            max_output_tokens=800,
+                            system_instruction=SYSTEM_PROMPT,
+                            temperature=0.4,  # Lower temperature for higher accuracy in problem solving
+                            max_output_tokens=1500,
                         ),
                     )
                     
-                    # Stream tokens live
+                    # Stream response word-by-word
                     for chunk in stream:
                         if chunk.text:
                             reply_text += chunk.text
@@ -73,15 +106,14 @@ if prompt := st.chat_input("Ask T-Pire anything..."):
                     
                     message_placeholder.markdown(reply_text)
                     st.session_state.messages.append({"role": "assistant", "content": reply_text})
-                    success = True
                     break
 
             except Exception as e:
                 err_str = str(e)
-                # If Google throws a 503 traffic spike, pause briefly and retry
+                # Handle 503 traffic spikes automatically
                 if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < max_retries - 1:
-                    time.sleep(1.5 * (attempt + 1))  # Wait 1.5s, then 3s
+                    time.sleep(1.5 * (attempt + 1))
                     continue
                 else:
-                    message_placeholder.warning("⚠️ Google's servers are experiencing high traffic right now. Please press Enter to try your message again.")
+                    message_placeholder.warning("⚠️ Server busy right now. Please press Enter to ask again.")
                     break
