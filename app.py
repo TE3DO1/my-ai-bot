@@ -87,7 +87,7 @@ def send_email_code(to_email: str, code: str):
     except Exception as e:
         return False, f"Грешка при изпращане: {e}"
 
-# ----------------- РЕСПОНСИВЕН ДИЗАЙН (МАЛЪК И ГОЛЯМ ТЕЛЕФОН) -----------------
+# ----------------- РЕСПОНСИВЕН ДИЗАЙН -----------------
 css_styles = """
 <style>
     #MainMenu {visibility: hidden;}
@@ -97,13 +97,23 @@ css_styles = """
         background-color: #17181c;
     }
 
-    /* Тъмен стил на страничното меню */
     [data-testid="stSidebar"] {
         background-color: #1b1c22 !important;
         border-right: 1px solid #272832 !important;
     }
 
-    /* Заглавие при празен екран */
+    /* Модел селектор горе вляво на главния екран (стил ChatGPT) */
+    div[data-testid="stSelectbox"] {
+        max-width: 200px;
+    }
+    div[data-testid="stSelectbox"] > div {
+        background-color: #212227 !important;
+        border: 1px solid #2e3038 !important;
+        border-radius: 12px !important;
+        color: #ffffff !important;
+        font-weight: 600 !important;
+    }
+
     .center-hero {
         display: flex;
         flex-direction: column;
@@ -121,7 +131,7 @@ css_styles = """
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
-    /* Единната кутия за чат */
+    /* Кутия за писане */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #212227 !important;
         border: 1px solid #2e3038 !important;
@@ -157,7 +167,6 @@ css_styles = """
         padding: 2px 4px !important;
     }
 
-    /* АДАПТИВНОСТ ЗА МАЛКИ И ГОЛЕМИ ТЕЛЕФОНИ */
     @media (max-width: 768px) {
         .hero-title {
             font-size: 1.6rem !important;
@@ -196,13 +205,11 @@ if "attached_file" not in st.session_state:
 if "pending_submit" not in st.session_state:
     st.session_state.pending_submit = None
 
-# Търсене и Разсъждение (вградени в трите точки)
 if "tool_search" not in st.session_state:
     st.session_state.tool_search = False
 if "tool_reasoning" not in st.session_state:
     st.session_state.tool_reasoning = True
 
-# Състояние за имейл код
 if "reg_step" not in st.session_state:
     st.session_state.reg_step = 1
 if "target_email" not in st.session_state:
@@ -287,11 +294,11 @@ def auth_modal():
                     st.session_state.reg_step = 1
                     st.rerun()
 
-# ----------------- СТРАНИЧНО МЕНЮ (SIDEBAR): ПРОФИЛ, ИСТОРИЯ И МОДЕЛ -----------------
+# ----------------- СТРАНИЧНО МЕНЮ (САМО ПРОФИЛ И ИСТОРИЯ) -----------------
 with st.sidebar:
     st.markdown("### ⚡ T-Pire AI")
     
-    # 1. Секция Профил
+    # Секция Профил
     if st.session_state.user_id:
         st.markdown(f"👤 **{st.session_state.user_email}**")
         if st.button("🚪 Изход от профила", use_container_width=True):
@@ -307,7 +314,7 @@ with st.sidebar:
             
     st.divider()
 
-    # 2. Секция История на чатовете
+    # Секция История на чатовете
     st.markdown("#### 📁 История на чатовете")
     if st.button("➕ Нов чат", use_container_width=True):
         st.session_state.current_chat_id = None
@@ -322,7 +329,6 @@ with st.sidebar:
             for ch in user_chats:
                 col_c_title, col_c_del = st.columns([4, 1])
                 with col_c_title:
-                    # Зареждане на чат
                     if st.button(f"💬 {ch[1]}", key=f"chat_{ch[0]}", use_container_width=True):
                         st.session_state.current_chat_id = ch[0]
                         c.execute("SELECT role, content, file_name, file_type, file_bytes FROM messages WHERE chat_id = ? ORDER BY id ASC", (ch[0],))
@@ -330,7 +336,6 @@ with st.sidebar:
                         st.session_state.messages = [{"role": r[0], "content": r[1], "file_name": r[2], "file_type": r[3], "file_bytes": r[4]} for r in rows]
                         st.rerun()
                 with col_c_del:
-                    # Изтриване на отделен чат
                     if st.button("🗑️", key=f"del_{ch[0]}", help="Изтрий този чат"):
                         c.execute("DELETE FROM messages WHERE chat_id = ?", (ch[0],))
                         c.execute("DELETE FROM chats WHERE id = ?", (ch[0],))
@@ -356,12 +361,11 @@ with st.sidebar:
     else:
         st.caption("🔒 *Влезте в профила си, за да виждате и управлявате историята си.*")
 
-    st.divider()
-
-    # 3. Избор на модел
-    st.markdown("#### ⚙️ Модел")
+# ----------------- ГЛАВЕН ЕКРАН: МОДЕЛ ГОРЕ ВЛЯВО -----------------
+col_m, col_sp = st.columns([3, 7])
+with col_m:
     model_choice = st.selectbox(
-        "Избор на модел",
+        "Модел",
         ["⚡ T-Pire 3.5 (Бърз)", "🧠 T-Pire 3.8 (Умен)"],
         label_visibility="collapsed"
     )
@@ -396,7 +400,7 @@ def get_client(key):
 
 client = get_client(api_key)
 
-# ----------------- ФИКСИРАНЕ НА БАРА ДОЛУ ПРИ СЪОБЩЕНИЯ -----------------
+# Фиксиране на бара най-долу при съобщения
 if st.session_state.messages:
     st.markdown("""
     <style>
@@ -434,7 +438,7 @@ for msg in st.session_state.messages:
                 st.info(f"📄 **Прикачен документ:** `{msg.get('file_name', 'документ')}`")
         st.markdown(msg["content"])
 
-# ----------------- КОМПАКТЕН БАР ЗА ТЕЛЕФОНИ И КОМПЮТРИ -----------------
+# ----------------- КОМПАКТЕН БАР -----------------
 bar_placeholder = "Продължи разговора" if st.session_state.messages else "Попитай нещо"
 
 def submit_action():
@@ -459,7 +463,6 @@ with st.container(border=True):
     if st.session_state.attached_file:
         st.caption(f"📎 Готов за изпращане: `{st.session_state.attached_file.name}`")
 
-    # Само 4 бутона: перфектно се побира на всеки малък и голям телефон!
     col_doc, col_img, col_dots, col_spacer, col_send = st.columns([1, 1, 1, 6, 1])
 
     with col_doc:
@@ -476,7 +479,6 @@ with st.container(border=True):
                 st.session_state.attached_file = img_upload
                 st.success("Прикачена!")
 
-    # В трите точки са Търсене, Разсъждение и изчистване!
     with col_dots:
         with st.popover("", icon=":material/more_horiz:", help="Инструменти и опции"):
             st.markdown("**Инструменти на AI:**")
@@ -542,7 +544,6 @@ if st.session_state.pending_submit:
     current_parts.append(types.Part.from_text(text=prompt_text))
     contents.append(types.Content(role="user", parts=current_parts))
 
-    # Включване на Google Търсене, ако е активирано в трите точки
     tools = []
     if st.session_state.tool_search:
         tools.append(types.Tool(google_search=types.GoogleSearch()))
