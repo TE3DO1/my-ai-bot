@@ -102,7 +102,7 @@ css_styles = """
         border-right: 1px solid #272832 !important;
     }
 
-    /* Модел селектор горе вляво на главния екран (стил ChatGPT) */
+    /* Модел селектор горе вляво на главния екран */
     div[data-testid="stSelectbox"] {
         max-width: 200px;
     }
@@ -167,22 +167,45 @@ css_styles = """
         padding: 2px 4px !important;
     }
 
+    /* --- ФИКС ЗА ТЕЛЕФОНИ: ТРИТЕ ИКОНКИ ЗАЛЕПЕНИ ВЛЯВО, СТРЕЛКАТА ВДЯСНО --- */
+    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        gap: 6px !important;
+        width: 100% !important;
+    }
+
+    /* Трите иконки вляво: плътно събрани без раздалечаване */
+    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="column"]:nth-child(1),
+    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="column"]:nth-child(2),
+    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="column"]:nth-child(3) {
+        flex: 0 0 auto !important;
+        width: auto !important;
+        min-width: 0 !important;
+        padding: 0 !important;
+    }
+
+    /* Празното място между трите точки и стрелката */
+    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="column"]:nth-child(4) {
+        flex-grow: 1 !important;
+        width: auto !important;
+    }
+
+    /* Стрелката най-вдясно */
+    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="column"]:nth-child(5) {
+        flex: 0 0 auto !important;
+        width: auto !important;
+        min-width: 0 !important;
+        padding: 0 !important;
+    }
+
     @media (max-width: 768px) {
         .hero-title {
             font-size: 1.6rem !important;
             margin-top: 12vh !important;
-        }
-        div[data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            align-items: center !important;
-            justify-content: space-between !important;
-            gap: 2px !important;
-        }
-        div[data-testid="column"] {
-            width: auto !important;
-            flex: 0 0 auto !important;
         }
     }
 </style>
@@ -294,11 +317,10 @@ def auth_modal():
                     st.session_state.reg_step = 1
                     st.rerun()
 
-# ----------------- СТРАНИЧНО МЕНЮ (САМО ПРОФИЛ И ИСТОРИЯ) -----------------
+# ----------------- СТРАНИЧНО МЕНЮ (ПРОФИЛ И ИСТОРИЯ) -----------------
 with st.sidebar:
     st.markdown("### ⚡ T-Pire AI")
     
-    # Секция Профил
     if st.session_state.user_id:
         st.markdown(f"👤 **{st.session_state.user_email}**")
         if st.button("🚪 Изход от профила", use_container_width=True):
@@ -314,7 +336,6 @@ with st.sidebar:
             
     st.divider()
 
-    # Секция История на чатовете
     st.markdown("#### 📁 История на чатовете")
     if st.button("➕ Нов чат", use_container_width=True):
         st.session_state.current_chat_id = None
@@ -438,7 +459,7 @@ for msg in st.session_state.messages:
                 st.info(f"📄 **Прикачен документ:** `{msg.get('file_name', 'документ')}`")
         st.markdown(msg["content"])
 
-# ----------------- КОМПАКТЕН БАР -----------------
+# ----------------- КОМПАКТЕН БАР (СЪБРАНИ ИКОНКИ ВЛЯВО) -----------------
 bar_placeholder = "Продължи разговора" if st.session_state.messages else "Попитай нещо"
 
 def submit_action():
@@ -463,7 +484,8 @@ with st.container(border=True):
     if st.session_state.attached_file:
         st.caption(f"📎 Готов за изпращане: `{st.session_state.attached_file.name}`")
 
-    col_doc, col_img, col_dots, col_spacer, col_send = st.columns([1, 1, 1, 6, 1])
+    # Колонките: първите три са плътно вляво с CSS, 4-тата е разделител, 5-тата е стрелката вдясно
+    col_doc, col_img, col_dots, col_spacer, col_send = st.columns([1, 1, 1, 12, 1])
 
     with col_doc:
         with st.popover("", icon=":material/note_add:", help="Качи PDF / Документ"):
