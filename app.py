@@ -2,9 +2,9 @@ import streamlit as st
 from google import genai
 from google.genai import types
 
-st.set_page_config(page_title="My Custom AI", page_icon="🤖")
+st.set_page_config(page_title="T-Pire", page_icon="🤖")
 
-st.title("🤖 My Personal AI")
+st.title("🤖 Ask T-Pire")
 
 # Check for API key in Streamlit Secrets, or let user type it in sidebar
 api_key = st.secrets.get("GEMINI_API_KEY")
@@ -45,7 +45,7 @@ if prompt := st.chat_input("Ask me anything..."):
         with st.spinner("Thinking..."):
             try:
                 response = client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model="gemini-2.0-flash",
                     contents=contents,
                     config=types.GenerateContentConfig(
                         system_instruction="You are a smart, helpful personal AI assistant.",
