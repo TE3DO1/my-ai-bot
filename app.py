@@ -91,7 +91,7 @@ if prompt := st.chat_input("Ask T-Pire anything..."):
             try:
                 with st.spinner("Analyzing image and solving..." if image_part else "Thinking..."):
                     stream = client.models.generate_content_stream(
-                        model="gemini-3.8-flash-lite",
+                        model="gemini-3.8-flash",
                         contents=contents,
                         config=types.GenerateContentConfig(
                             system_instruction=SYSTEM_PROMPT,
