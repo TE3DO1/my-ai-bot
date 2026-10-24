@@ -1,52 +1,49 @@
 import streamlit as st
 import time
-import urllib.parse
 from google import genai
 from google.genai import types
+from huggingface_hub import InferenceClient
 
 st.set_page_config(page_title="Ask T-Pire", page_icon="⚡", layout="centered")
 
-st.title("⚡ Ask T-Pire (Chat, Vision & Image Generator)")
+st.title("⚡ Ask T-Pire (Fast Chat, Vision & FLUX Image Gen)")
 
-# Check API Key
-api_key = st.secrets.get("GEMINI_API_KEY")
-if not api_key:
-    api_key = st.sidebar.text_input("Enter Gemini API Key", type="password")
-    if not api_key:
-        st.warning("👈 Please enter your Gemini API Key in the sidebar.")
-        st.stop()
+# ----------------- KEYS & CLIENTS -----------------
+gemini_key = st.secrets.get("GEMINI_API_KEY") or st.sidebar.text_input("Enter Gemini API Key", type="password")
+hf_token = st.secrets.get("HF_TOKEN") or st.sidebar.text_input("Enter Hugging Face Token (Optional for Images)", type="password")
 
-# Reuse client connection
+if not gemini_key:
+    st.warning("👈 Please add your Gemini API Key to continue.")
+    st.stop()
+
 @st.cache_resource
-def get_client(key):
+def get_gemini_client(key):
     return genai.Client(api_key=key)
 
-client = get_client(api_key)
+@st.cache_resource
+def get_hf_client(token):
+    return InferenceClient(api_key=token) if token else None
 
-# ----------------- SIDEBAR: PICTURE SOLVER (VISION) -----------------
+gemini_client = get_gemini_client(gemini_key)
+hf_client = get_hf_client(hf_token)
+
+# ----------------- SIDEBAR: PICTURE SOLVER -----------------
 st.sidebar.header("📸 Picture Solver (Vision)")
-uploaded_file = st.sidebar.file_uploader(
-    "Upload a picture to read or solve", 
-    type=["jpg", "jpeg", "png", "webp"]
-)
+uploaded_file = st.sidebar.file_uploader("Upload a photo to solve or read", type=["jpg", "jpeg", "png", "webp"])
 
 image_part = None
 if uploaded_file is not None:
     st.sidebar.image(uploaded_file, caption="Uploaded Picture", use_container_width=True)
-    image_part = types.Part.from_bytes(
-        data=uploaded_file.getvalue(),
-        mime_type=uploaded_file.type
-    )
+    image_part = types.Part.from_bytes(data=uploaded_file.getvalue(), mime_type=uploaded_file.type)
 
 st.sidebar.markdown("---")
-st.sidebar.header("🎨 Free Image Generator")
-st.sidebar.caption("Type `/image <description>` in chat to draw pictures instantly!")
+st.sidebar.header("⚡ Instant FLUX Images")
+st.sidebar.caption("Type `/image <prompt>` to generate an image in 2 seconds with no cooldown!")
 
 # ----------------- CHAT HISTORY -----------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display conversation history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         if msg.get("type") == "image":
@@ -54,25 +51,13 @@ for msg in st.session_state.messages:
         else:
             st.markdown(msg["content"])
 
-# ----------------- HELPER FUNCTIONS -----------------
+# ----------------- PROMPT HELPERS -----------------
 def is_image_request(text: str) -> bool:
     t = text.strip().lower()
-    return (
-        t.startswith("/image") or 
-        t.startswith("/draw") or 
-        t.startswith("generate an image") or 
-        t.startswith("draw an image") or
-        t.startswith("create an image") or
-        t.startswith("draw a") or
-        t.startswith("draw me")
-    )
+    return t.startswith(("/image", "/draw", "generate an image", "create an image", "draw a ", "draw me"))
 
 def extract_prompt(text: str) -> str:
-    prefixes = [
-        "/image", "/draw", "generate an image of", "generate an image",
-        "create an image of", "create an image", "draw an image of",
-        "draw a", "draw me an image of", "draw me", "draw"
-    ]
+    prefixes = ["/image", "/draw", "generate an image of", "generate an image", "create an image of", "create an image", "draw an image of", "draw a", "draw me", "draw"]
     t_lower = text.strip().lower()
     for p in prefixes:
         if t_lower.startswith(p):
@@ -80,32 +65,33 @@ def extract_prompt(text: str) -> str:
     return text.strip()
 
 # ----------------- CHAT INPUT -----------------
-if prompt := st.chat_input("Ask T-Pire anything..."):
+if prompt := st.chat_input("Ask a question, upload a photo, or type '/image a supercar'..."):
     st.session_state.messages.append({"role": "user", "type": "text", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # CASE 1: GENERATE AN IMAGE (FREE VIA FLUX/POLLINATIONS)
+    # CASE 1: INSTANT IMAGE GENERATION VIA FLUX.1-SCHNELL (NO 45s WAIT)
     if is_image_request(prompt):
         img_prompt = extract_prompt(prompt)
         with st.chat_message("assistant"):
-            with st.spinner(f"🎨 Generating '{img_prompt}'..."):
-                try:
-                    # Clean encode prompt into free image generator URL
-                    encoded = urllib.parse.quote(img_prompt)
-                    image_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true"
-                    
-                    st.image(image_url, caption=f"🎨 '{img_prompt}'")
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "type": "image",
-                        "content": image_url,
-                        "caption": f"🎨 '{img_prompt}'"
-                    })
-                except Exception as e:
-                    st.error(f"Image error: {e}")
+            if not hf_client:
+                st.warning("⚠️ Please add your free `HF_TOKEN` in Streamlit Secrets or the sidebar to generate images.")
+            else:
+                with st.spinner(f"⚡ Generating '{img_prompt}' in ~3 seconds..."):
+                    try:
+                        # Calls FLUX.1-schnell directly
+                        img = hf_client.text_to_image(img_prompt, model="black-forest-labs/FLUX.1-schnell")
+                        st.image(img, caption=f"🎨 '{img_prompt}'")
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "type": "image",
+                            "content": img,
+                            "caption": f"🎨 '{img_prompt}'"
+                        })
+                    except Exception as e:
+                        st.error(f"Generation error: {e}")
 
-    # CASE 2: NORMAL CHAT OR VISION SOLVER (GEMINI)
+    # CASE 2: FAST CHAT & VISION PROBLEM SOLVER
     else:
         text_messages = [m for m in st.session_state.messages if m.get("type", "text") == "text"]
         recent_messages = text_messages[-4:-1]
@@ -126,24 +112,16 @@ if prompt := st.chat_input("Ask T-Pire anything..."):
             max_retries = 3
             reply_text = ""
 
-            SYSTEM_PROMPT = """
-            You are T-Pire, an expert AI assistant and problem solver with vision capabilities.
-            When an image is provided:
-            1. Read and extract all text, equations, or problems from the picture.
-            2. Solve the problem thoroughly step-by-step.
-            If no image is provided, respond helpfully, fast, and conversationally.
-            """
-
             for attempt in range(max_retries):
                 try:
-                    with st.spinner("Analyzing image and solving..." if image_part else "Thinking..."):
-                        stream = client.models.generate_content_stream(
+                    with st.spinner("Analyzing and solving..." if image_part else "Thinking..."):
+                        stream = gemini_client.models.generate_content_stream(
                             model="gemini-3.5-flash-lite",
                             contents=contents,
                             config=types.GenerateContentConfig(
-                                system_instruction=SYSTEM_PROMPT,
+                                system_instruction="You are T-Pire, an expert tutor and assistant with vision. Solve problems step-by-step and keep chat answers fast and helpful.",
                                 temperature=0.5,
-                                max_output_tokens=1500,
+                                max_output_tokens=1200,
                             ),
                         )
                         for chunk in stream:
