@@ -42,8 +42,8 @@ st.sidebar.header("⚙️ AI Version Switcher")
 version_choice = st.sidebar.selectbox(
     "Choose AI Brain:",
     [
-        "🧠 Smart Mode (Gemini 3.8 Flash - Accurate & Math)",
-        "⚡ Fast Mode (Gemini 3.5 Flash-Lite - Ultra Speed)",
+        "🧠 Smart Mode (T-Pire 2.0 tdi - Accurate & Math)",
+        "⚡ Fast Mode (T-Pire 1.9 tdi - Ultra Speed)",
     ],
     index=0  # Defaults to Smart Mode for correct answers
 )
