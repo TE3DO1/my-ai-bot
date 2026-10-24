@@ -1,5 +1,7 @@
 import streamlit as st
 import time
+import io
+from gtts import gTTS
 from google import genai
 from google.genai import types
 
@@ -36,34 +38,34 @@ def get_client(key):
 
 client = get_client(api_key)
 
-# ----------------- SIDEBAR: VERSION SWITCHER -----------------
-st.sidebar.header("⚙️ AI Version Switcher")
-
-version_choice = st.sidebar.selectbox(
-    "Choose AI Brain:",
-    [
-        "🧠 Smart Mode (T-Pire 2.0 tdi - Accurate & Math)",
-        "⚡ Fast Mode (T-Pire 1.9 tdi - Ultra Speed)",
-    ],
-    index=0  # Defaults to Smart Mode for correct answers
-)
-
-# Set model and temperature based on user selection
-if "Smart" in version_choice:
-    selected_model = "gemini-3.8-flash"
-    selected_temp = 0.2  # Precise & factual
-    st.sidebar.caption("🎯 *Best for homework, math, coding, and precise reasoning.*")
-else:
-    selected_model = "gemini-3.5-flash-lite"
-    selected_temp = 0.6  # Quick & conversational
-    st.sidebar.caption("🚀 *Best for rapid chatting, quick ideas, and small talk.*")
+# ----------------- SIDEBAR CONTROLS -----------------
+st.sidebar.header("🔊 Voice Mode")
+enable_voice = st.sidebar.checkbox("Talk out loud (Audio answers)", value=False)
+if enable_voice:
+    st.sidebar.caption("🎙️ *T-Pire will read answers aloud!*")
 
 st.sidebar.markdown("---")
+st.sidebar.header("⚙️ AI Brain Version")
+version_choice = st.sidebar.selectbox(
+    "Choose Mode:",
+    [
+        "⚡ Fast Mode (T-Pire 1.9 tdi - Rapid)",
+        "🧠 Smart Mode (T-Pire 2.0 tdi - Accurate)", 
+    ],
+    index=0
+)
 
-# ----------------- SIDEBAR: PICTURE SOLVER -----------------
+if "Smart" in version_choice:
+    selected_model = "gemini-3.8-flash"
+    selected_temp = 0.2
+else:
+    selected_model = "gemini-3.5-flash-lite"
+    selected_temp = 0.6
+
+st.sidebar.markdown("---")
 st.sidebar.header("📸 Picture Solver (Vision)")
 uploaded_file = st.sidebar.file_uploader(
-    "Upload a picture (math, notes, questions, forms)", 
+    "Upload a picture to solve", 
     type=["jpg", "jpeg", "png", "webp"]
 )
 
@@ -74,7 +76,6 @@ if uploaded_file is not None:
         data=uploaded_file.getvalue(),
         mime_type=uploaded_file.type
     )
-    st.sidebar.info("💡 Type 'solve this' or ask a question about the picture below.")
 
 # ----------------- CHAT HISTORY -----------------
 if "messages" not in st.session_state:
@@ -113,7 +114,7 @@ if prompt := st.chat_input("Ask T-Pire anything..."):
 
         for attempt in range(max_retries):
             try:
-                spinner_text = "Solving..." if image_part else ("Thinking deeply..." if "Smart" in version_choice else "Typing fast...")
+                spinner_text = "Solving..." if image_part else "Thinking..."
                 with st.spinner(spinner_text):
                     stream = client.models.generate_content_stream(
                         model=selected_model,
@@ -121,7 +122,7 @@ if prompt := st.chat_input("Ask T-Pire anything..."):
                         config=types.GenerateContentConfig(
                             system_instruction=SYSTEM_PROMPT,
                             temperature=selected_temp,
-                            max_output_tokens=2000,
+                            max_output_tokens=1500,
                         ),
                     )
                     
@@ -132,6 +133,19 @@ if prompt := st.chat_input("Ask T-Pire anything..."):
 
                     message_placeholder.markdown(reply_text)
                     st.session_state.messages.append({"role": "assistant", "content": reply_text})
+                    
+                    # 🔊 If voice is enabled, generate audio and speak aloud
+                    if enable_voice and reply_text.strip():
+                        try:
+                            # Remove markdown asterisks for cleaner pronunciation
+                            clean_speech = reply_text.replace("*", "").replace("#", "")
+                            tts = gTTS(text=clean_speech, lang="en")
+                            audio_bytes = io.BytesIO()
+                            tts.write_to_fp(audio_bytes)
+                            audio_bytes.seek(0)
+                            st.audio(audio_bytes, format="audio/mp3", autoplay=True)
+                        except Exception as audio_err:
+                            st.caption(f"Audio error: {audio_err}")
                     break
 
             except Exception as e:
