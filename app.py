@@ -5,6 +5,8 @@ import hashlib
 import random
 import smtplib
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.header import Header
 from google import genai
 from google.genai import types
 
@@ -47,26 +49,45 @@ conn.commit()
 def hash_pass(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
-# Изпращане на имейл с код
+# ----------------- ИЗПРАЩАНЕ НА ИСТИНСКИ ИМЕЙЛ С КОД -----------------
 def send_email_code(to_email: str, code: str):
     smtp_user = st.secrets.get("SMTP_EMAIL")
     smtp_pass = st.secrets.get("SMTP_PASSWORD")
     
     if not smtp_user or not smtp_pass:
-        return False, "Няма настроен SMTP_EMAIL в Secrets."
+        return False, "Сайтът все още няма настроен SMTP_EMAIL в Streamlit Secrets!"
 
-    msg = MIMEText(f"Здравейте!\n\nВашият код за потвърждение на регистрацията в T-Pire е: {code}\n\nПоздрави,\nЕкипът на T-Pire", "plain", "utf-8")
-    msg["Subject"] = f"Код за потвърждение: {code}"
+    clean_pass = smtp_pass.replace(" ", "")
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = Header(f"Вашият код за потвърждение: {code}", "utf-8")
     msg["From"] = f"T-Pire AI <{smtp_user}>"
     msg["To"] = to_email
 
+    # Красив HTML шаблон на писмото
+    html_content = f"""
+    <div style="font-family: Arial, sans-serif; background-color: #17181c; color: #ffffff; padding: 30px; border-radius: 12px; max-width: 480px; margin: auto;">
+        <h2 style="color: #4f8bf9; margin-top: 0; text-align: center;">⚡ T-Pire AI</h2>
+        <p style="font-size: 15px; color: #d1d5db; text-align: center;">Благодарим ви за регистрацията! Вашият код за потвърждение е:</p>
+        <div style="background-color: #212227; border: 1px solid #383a45; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
+            <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #ffffff;">{code}</span>
+        </div>
+        <p style="font-size: 13px; color: #8e8f99; text-align: center;">Кодът е валиден 10 минути. Ако не сте заявили този код, моля игнорирайте писмото.</p>
+        <hr style="border: 0; border-top: 1px solid #2e3038; margin: 20px 0;">
+        <p style="font-size: 11px; color: #6b7280; text-align: center;">T-Pire AI • Създаден от Теодор Пимпирев</p>
+    </div>
+    """
+    msg.attach(MIMEText(html_content, "html", "utf-8"))
+
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(smtp_user, smtp_pass)
+        # Свързване с пощенския сървър
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=12) as server:
+            server.starttls()
+            server.login(smtp_user, clean_pass)
             server.sendmail(smtp_user, [to_email], msg.as_string())
-        return True, "Кодът е изпратен успешно!"
+        return True, "Писмото е изпратено успешно!"
     except Exception as e:
-        return False, str(e)
+        return False, f"Грешка при изпращане: {e}"
 
 # ----------------- СТИЛИЗИРАНЕ -----------------
 css_styles = """
@@ -195,7 +216,6 @@ if "attached_file" not in st.session_state:
 if "pending_submit" not in st.session_state:
     st.session_state.pending_submit = None
 
-# Състояние за имейл кода
 if "reg_step" not in st.session_state:
     st.session_state.reg_step = 1
 if "target_email" not in st.session_state:
@@ -203,7 +223,7 @@ if "target_email" not in st.session_state:
 if "gen_code" not in st.session_state:
     st.session_state.gen_code = ""
 
-# Диалог за Вход и Регистрация с Код
+# Диалогов прозорец за Вход и Регистрация
 @st.dialog("Вход в T-Pire")
 def auth_modal():
     tab_login, tab_reg = st.tabs(["Вход", "Регистрация с код"])
@@ -229,39 +249,38 @@ def auth_modal():
 
     with tab_reg:
         if st.session_state.reg_step == 1:
-            st.markdown("Въведете вашия имейл, за да получите код за потвърждение:")
+            st.markdown("Въведете вашия имейл. На него ще получите **6-цифрен код за потвърждение**:")
             r_email = st.text_input("Имейл", key="reg_email_input")
-            if st.button("📩 Изпрати код", use_container_width=True):
+            if st.button("📩 Изпрати ми код на имейла", use_container_width=True):
                 if r_email and "@" in r_email:
-                    # Проверка дали вече съществува
                     c.execute("SELECT id FROM users WHERE email = ?", (r_email.strip().lower(),))
                     if c.fetchone():
-                        st.error("Този имейл вече има регистрация!")
+                        st.error("Този имейл вече има съществуваща регистрация!")
                     else:
                         code = str(random.randint(100000, 999999))
                         st.session_state.gen_code = code
                         st.session_state.target_email = r_email.strip().lower()
                         
-                        sent, info = send_email_code(st.session_state.target_email, code)
-                        if sent:
-                            st.success("Кодът беше изпратен на вашия имейл!")
-                        else:
-                            st.info(f"💡 (Тестови режим) Вашият код е: **{code}**")
-                        
-                        st.session_state.reg_step = 2
-                        st.rerun()
+                        with st.spinner("Изпращане на имейл..."):
+                            sent, info = send_email_code(st.session_state.target_email, code)
+                            if sent:
+                                st.session_state.reg_step = 2
+                                st.success("✅ Кодът е изпратен! Проверете входящата си поща и папка Спам.")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {info}")
                 else:
                     st.warning("Въведете валиден имейл адрес.")
         
         elif st.session_state.reg_step == 2:
-            st.markdown(f"Изпратен е код към **{st.session_state.target_email}**:")
-            entered_code = st.text_input("Въведете 6-цифрения код", key="reg_code_input")
-            new_pass = st.text_input("Изберете парола", type="password", key="reg_pass_input")
+            st.markdown(f"Изпратихме код на: **{st.session_state.target_email}**")
+            entered_code = st.text_input("Въведете 6-цифрения код от пощата:", key="reg_code_input")
+            new_pass = st.text_input("Изберете вашата парола:", type="password", key="reg_pass_input")
             
             col_b1, col_b2 = st.columns([1, 1])
             with col_b1:
                 if st.button("Завърши регистрация", use_container_width=True):
-                    if entered_code == st.session_state.gen_code:
+                    if entered_code.strip() == st.session_state.gen_code:
                         if len(new_pass) >= 4:
                             c.execute("INSERT INTO users (email, password) VALUES (?, ?)", (st.session_state.target_email, hash_pass(new_pass)))
                             conn.commit()
@@ -270,18 +289,18 @@ def auth_modal():
                             st.session_state.current_chat_id = None
                             st.session_state.messages = []
                             st.session_state.reg_step = 1
-                            st.success("Регистрацията е успешна!")
+                            st.success("🎉 Успешна регистрация!")
                             st.rerun()
                         else:
-                            st.error("Паролата трябва да е поне 4 символа.")
+                            st.error("Паролата трябва да съдържа поне 4 символа.")
                     else:
-                        st.error("Грешен код за потвърждение!")
+                        st.error("Грешен код! Моля, проверете писмото отново.")
             with col_b2:
-                if st.button("Назад / Нов имейл", use_container_width=True):
+                if st.button("Назад / Промени имейл", use_container_width=True):
                     st.session_state.reg_step = 1
                     st.rerun()
 
-# Зареждане на чат
+# Управление на чатове
 def load_chat(chat_id):
     st.session_state.current_chat_id = chat_id
     c.execute("SELECT role, content, file_name, file_type, file_bytes FROM messages WHERE chat_id = ? ORDER BY id ASC", (chat_id,))
@@ -297,7 +316,6 @@ def load_chat(chat_id):
         })
     st.rerun()
 
-# Изтриване на един конкретен чат
 def delete_single_chat(chat_id):
     c.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
     c.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
@@ -307,7 +325,6 @@ def delete_single_chat(chat_id):
         st.session_state.messages = []
     st.rerun()
 
-# Изтриване на ВСИЧКИ чатове на потребителя
 def delete_all_user_chats():
     if st.session_state.user_id:
         c.execute("SELECT id FROM chats WHERE user_id = ?", (st.session_state.user_id,))
@@ -378,7 +395,7 @@ with col_auth:
 selected_model = "gemini-3.8-flash" if "3.8" in model_choice else "gemini-3.5-flash-lite"
 selected_temp = 0.2 if "3.8" in model_choice else 0.6
 
-# ----------------- СИСТЕМЕН ПРОМПТ (СЪЗДАТЕЛ И ПРАВИЛА) -----------------
+# ----------------- СИСТЕМЕН ПРОМПТ -----------------
 SYSTEM_PROMPT = """
 Ти си T-Pire – бърз, мощен и интелигентен персонален AI асистент с възможности за четене на PDF документи, файлове и компютърно зрение.
 Отговаряй точно, структурирано и вежливо на български език (или на езика, на който пише потребителят).
@@ -405,7 +422,7 @@ def get_client(key):
 
 client = get_client(api_key)
 
-# Слизане на бара надолу при съобщения
+# Фиксиране на бара най-долу при съобщения
 if st.session_state.messages:
     st.markdown("""
     <style>
