@@ -1,24 +1,26 @@
 import streamlit as st
 import time
+import io
+from gtts import gTTS
 from google import genai
 from google.genai import types
 
 st.set_page_config(page_title="Ask T-Pire", page_icon="⚡", layout="centered")
 
-st.title("⚡ Ask T-Pire (Fast Chat & Vision Solver)")
+st.title("⚡ Ask T-Pire")
 
 # ----------------- CREATOR & BEHAVIOR PROMPT -----------------
 SYSTEM_PROMPT = """
-You are T-Pire, a smart, fast, and helpful AI assistant and tutor with computer vision.
+You are T-Pire, a smart, fast, and helpful AI assistant with computer vision.
 
-CREATOR RULE:
-If anyone asks who created you, who made you, or who your developer is, you must proudly state that you were created by 17-year-old teenager Teodor Pimpirev! Never say you were made by Google.
+STRICT CREATOR RULE:
+- ONLY state your creator if explicitly asked "Who created/made you?".
+- If asked, state: "I was created by 17-year-old teenager Teodor Pimpirev!"
+- For ALL other prompts: DO NOT mention Teodor Pimpirev or introduce yourself.
 
 CAPABILITIES:
-- When an image is provided:
-  1. Extract all text, equations, and questions accurately from the image.
-  2. Solve the problem step-by-step with clear explanations.
-- When chatting normally, be fast, witty, polite, and helpful.
+- If an image is provided, extract all text and solve it step-by-step.
+- When chatting normally, answer questions directly, fast, and concisely.
 """
 
 # Check API Key
@@ -36,10 +38,34 @@ def get_client(key):
 
 client = get_client(api_key)
 
-# ----------------- SIDEBAR: PICTURE SOLVER -----------------
+# ----------------- SIDEBAR CONTROLS -----------------
+st.sidebar.header("🔊 Voice Mode")
+enable_voice = st.sidebar.checkbox("Talk out loud (Audio answers)", value=False)
+if enable_voice:
+    st.sidebar.caption("🎙️ *T-Pire will read answers aloud!*")
+
+st.sidebar.markdown("---")
+st.sidebar.header("⚙️ AI Brain Version")
+version_choice = st.sidebar.selectbox(
+    "Choose Mode:",
+    [
+      "⚡ Fast Mode (T-Pire 1.9 tdi - Rapid)",
+        "🧠 Smart Mode (T-Pire 2.0 tdi - Accurate)",
+    ],
+    index=0
+)
+
+if "Smart" in version_choice:
+    selected_model = "gemini-3.8-flash"
+    selected_temp = 0.2
+else:
+    selected_model = "gemini-3.5-flash-lite"
+    selected_temp = 0.6
+
+st.sidebar.markdown("---")
 st.sidebar.header("📸 Picture Solver (Vision)")
 uploaded_file = st.sidebar.file_uploader(
-    "Upload a picture (math, notes, questions, forms)", 
+    "Upload a picture to solve", 
     type=["jpg", "jpeg", "png", "webp"]
 )
 
@@ -50,7 +76,6 @@ if uploaded_file is not None:
         data=uploaded_file.getvalue(),
         mime_type=uploaded_file.type
     )
-    st.sidebar.info("💡 Type your question below, or type 'solve this' to solve the image.")
 
 # ----------------- CHAT HISTORY -----------------
 if "messages" not in st.session_state:
@@ -89,13 +114,14 @@ if prompt := st.chat_input("Ask T-Pire anything..."):
 
         for attempt in range(max_retries):
             try:
-                with st.spinner("Analyzing image and solving..." if image_part else "Thinking..."):
+                spinner_text = "Solving..." if image_part else "Thinking..."
+                with st.spinner(spinner_text):
                     stream = client.models.generate_content_stream(
-                        model="gemini-3.5-flash-lite",
+                        model=selected_model,
                         contents=contents,
                         config=types.GenerateContentConfig(
                             system_instruction=SYSTEM_PROMPT,
-                            temperature=0.5,
+                            temperature=selected_temp,
                             max_output_tokens=1500,
                         ),
                     )
@@ -107,6 +133,19 @@ if prompt := st.chat_input("Ask T-Pire anything..."):
 
                     message_placeholder.markdown(reply_text)
                     st.session_state.messages.append({"role": "assistant", "content": reply_text})
+                    
+                    # 🔊 If voice is enabled, generate audio and speak aloud
+                    if enable_voice and reply_text.strip():
+                        try:
+                            # Remove markdown asterisks for cleaner pronunciation
+                            clean_speech = reply_text.replace("*", "").replace("#", "")
+                            tts = gTTS(text=clean_speech, lang="en")
+                            audio_bytes = io.BytesIO()
+                            tts.write_to_fp(audio_bytes)
+                            audio_bytes.seek(0)
+                            st.audio(audio_bytes, format="audio/mp3", autoplay=True)
+                        except Exception as audio_err:
+                            st.caption(f"Audio error: {audio_err}")
                     break
 
             except Exception as e:
