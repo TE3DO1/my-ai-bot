@@ -50,7 +50,7 @@ def hash_pass(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 # ----------------- ИЗПРАЩАНЕ НА ИМЕЙЛ С КОД -----------------
-def send_email_code(to_email: str, code: str):
+def send_email_code(to_email: str, code: str, purpose: str = "reg"):
     smtp_user = st.secrets.get("SMTP_EMAIL")
     smtp_pass = st.secrets.get("SMTP_PASSWORD")
     
@@ -58,20 +58,22 @@ def send_email_code(to_email: str, code: str):
         return False, "Липсват SMTP_EMAIL или SMTP_PASSWORD в Streamlit Secrets!"
 
     clean_pass = smtp_pass.replace(" ", "")
+    subject_title = "Код за нова парола" if purpose == "reset" else "Код за потвърждение"
+    action_text = "заявка за смяна на вашата парола" if purpose == "reset" else "регистрация в T-Pire"
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = Header(f"Вашият код за потвърждение: {code}", "utf-8")
+    msg["Subject"] = Header(f"{subject_title}: {code}", "utf-8")
     msg["From"] = f"T-Pire AI <{smtp_user}>"
     msg["To"] = to_email
 
     html_content = f"""
     <div style="font-family: Arial, sans-serif; background-color: #17181c; color: #ffffff; padding: 25px; border-radius: 12px; max-width: 450px; margin: auto;">
         <h2 style="color: #4f8bf9; margin-top: 0; text-align: center;">⚡ T-Pire AI</h2>
-        <p style="font-size: 15px; color: #d1d5db; text-align: center;">Вашият 6-цифрен код за потвърждение е:</p>
+        <p style="font-size: 15px; color: #d1d5db; text-align: center;">Получихме {action_text}. Вашият 6-цифрен код е:</p>
         <div style="background-color: #212227; border: 1px solid #383a45; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
             <span style="font-size: 30px; font-weight: bold; letter-spacing: 5px; color: #ffffff;">{code}</span>
         </div>
-        <p style="font-size: 12px; color: #8e8f99; text-align: center;">Кодът е валиден 10 минути.</p>
+        <p style="font-size: 12px; color: #8e8f99; text-align: center;">Кодът е валиден 10 минути. Ако не сте заявили това, игнорирайте писмото.</p>
         <hr style="border: 0; border-top: 1px solid #2e3038; margin: 20px 0;">
         <p style="font-size: 11px; color: #6b7280; text-align: center;">T-Pire AI • Създаден от Теодор Пимпирев</p>
     </div>
@@ -102,7 +104,6 @@ css_styles = """
         border-right: 1px solid #272832 !important;
     }
 
-    /* Модел селектор горе вляво */
     div[data-testid="stSelectbox"] {
         max-width: 200px;
     }
@@ -131,7 +132,6 @@ css_styles = """
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
-    /* Кутия за писане */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #212227 !important;
         border: 1px solid #2e3038 !important;
@@ -151,7 +151,6 @@ css_styles = """
         color: #8e8f99 !important;
     }
 
-    /* Бутонът + и стрелката */
     div[data-testid="stPopover"] button,
     div[data-testid="stButton"] button {
         background-color: transparent !important;
@@ -165,7 +164,6 @@ css_styles = """
         color: #ffffff !important;
     }
 
-    /* ФИКС: САМО ДВА БУТОНА (+ вляво, ➤ вдясно) - НИКОГА НЕ СЕ ЧУПИ */
     div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stHorizontalBlock"] {
         display: flex !important;
         flex-direction: row !important;
@@ -196,7 +194,7 @@ css_styles = """
 """
 st.markdown(css_styles, unsafe_allow_html=True)
 
-# ----------------- ИНИЦИАЛИЗАЦИЯ -----------------
+# ----------------- ИНИЦИАЛИЗАЦИЯ НА СЕСИЯТА -----------------
 if "user_id" not in st.session_state:
     st.session_state.user_id = None
 if "user_email" not in st.session_state:
@@ -217,6 +215,7 @@ if "tool_search" not in st.session_state:
 if "tool_reasoning" not in st.session_state:
     st.session_state.tool_reasoning = True
 
+# Състояние за регистрация
 if "reg_step" not in st.session_state:
     st.session_state.reg_step = 1
 if "target_email" not in st.session_state:
@@ -224,14 +223,24 @@ if "target_email" not in st.session_state:
 if "gen_code" not in st.session_state:
     st.session_state.gen_code = ""
 
-# ----------------- ДИАЛОГ ЗА ВХОД И РЕГИСТРАЦИЯ -----------------
+# Състояние за забравена парола
+if "reset_step" not in st.session_state:
+    st.session_state.reset_step = 1
+if "reset_email" not in st.session_state:
+    st.session_state.reset_email = ""
+if "reset_code" not in st.session_state:
+    st.session_state.reset_code = ""
+
+# ----------------- ДИАЛОГ ЗА ВХОД, РЕГИСТРАЦИЯ И СМЯНА НА ПАРОЛА -----------------
 @st.dialog("Вход в профила")
 def auth_modal():
     tab_login, tab_reg = st.tabs(["Вход", "Регистрация с код"])
     
+    # 1. ТАБ ЗА ВХОД
     with tab_login:
         email = st.text_input("Имейл", key="auth_login_email")
         password = st.text_input("Парола", type="password", key="auth_login_pass")
+        
         if st.button("Влез", use_container_width=True):
             if email and password:
                 c.execute("SELECT id, email FROM users WHERE email = ? AND password = ?", (email.strip().lower(), hash_pass(password)))
@@ -248,6 +257,57 @@ def auth_modal():
             else:
                 st.warning("Попълнете всички полета.")
 
+        # --- СЕКЦИЯ: ЗАБРАВЕНА ПАРОЛА ---
+        with st.expander("❓ Забравена парола?"):
+            if st.session_state.reset_step == 1:
+                st.caption("Въведете вашия имейл, за да получите код за нова парола:")
+                f_email = st.text_input("Вашият имейл", key="forgot_email_input")
+                if st.button("📩 Изпрати код за възстановяване", use_container_width=True):
+                    if f_email and "@" in f_email:
+                        c.execute("SELECT id FROM users WHERE email = ?", (f_email.strip().lower(),))
+                        if c.fetchone():
+                            code = str(random.randint(100000, 999999))
+                            st.session_state.reset_code = code
+                            st.session_state.reset_email = f_email.strip().lower()
+                            
+                            with st.spinner("Изпращане на код..."):
+                                sent, info = send_email_code(st.session_state.reset_email, code, purpose="reset")
+                                if sent:
+                                    st.session_state.reset_step = 2
+                                    st.success("✅ Кодът е изпратен в пощата ви!")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {info}")
+                        else:
+                            st.error("Няма открит потребител с този имейл!")
+                    else:
+                        st.warning("Въведете валиден имейл адрес.")
+
+            elif st.session_state.reset_step == 2:
+                st.caption(f"Кодът е изпратен на: **{st.session_state.reset_email}**")
+                r_code = st.text_input("Въведете 6-цифрения код:", key="reset_code_input")
+                new_pw = st.text_input("Въведете НОВА парола:", type="password", key="new_pw_input")
+                
+                col_r1, col_r2 = st.columns([1, 1])
+                with col_r1:
+                    if st.button("Запази новата парола", use_container_width=True):
+                        if r_code.strip() == st.session_state.reset_code:
+                            if len(new_pw) >= 4:
+                                c.execute("UPDATE users SET password = ? WHERE email = ?", (hash_pass(new_pw), st.session_state.reset_email))
+                                conn.commit()
+                                st.session_state.reset_step = 1
+                                st.success("🎉 Паролата е сменена успешно! Вече можете да влезете.")
+                                st.rerun()
+                            else:
+                                st.error("Паролата трябва да е поне 4 символа.")
+                        else:
+                            st.error("Грешен код от имейла!")
+                with col_r2:
+                    if st.button("Отказ", use_container_width=True):
+                        st.session_state.reset_step = 1
+                        st.rerun()
+
+    # 2. ТАБ ЗА РЕГИСТРАЦИЯ С КОД
     with tab_reg:
         if st.session_state.reg_step == 1:
             st.markdown("Въведете вашия имейл, за да получите код:")
@@ -263,7 +323,7 @@ def auth_modal():
                         st.session_state.target_email = r_email.strip().lower()
                         
                         with st.spinner("Изпращане на имейл..."):
-                            sent, info = send_email_code(st.session_state.target_email, code)
+                            sent, info = send_email_code(st.session_state.target_email, code, purpose="reg")
                             if sent:
                                 st.session_state.reg_step = 2
                                 st.success("✅ Кодът е изпратен в пощата ви!")
@@ -280,7 +340,7 @@ def auth_modal():
             
             col_b1, col_b2 = st.columns([1, 1])
             with col_b1:
-                if st.button("Завърши", use_container_width=True):
+                if st.button("Завърши регистрация", use_container_width=True):
                     if entered_code.strip() == st.session_state.gen_code:
                         if len(new_pass) >= 4:
                             c.execute("INSERT INTO users (email, password) VALUES (?, ?)", (st.session_state.target_email, hash_pass(new_pass)))
@@ -468,10 +528,8 @@ with st.container(border=True):
     if st.session_state.attached_file:
         st.caption(f"📎 Готов за изпращане: `{st.session_state.attached_file.name}`")
 
-    # Редът има точно 2 бутона в двата края
     col_plus, col_space, col_send = st.columns([1, 10, 1])
 
-    # 1. ВСИЧКО Е В ТОЗИ ЕДИН ЕДИНСТВЕН БУТОН [+]
     with col_plus:
         with st.popover("", icon=":material/add:", help="Опции, файлове и инструменти"):
             st.markdown("**📁 Прикачване на файл:**")
@@ -501,7 +559,6 @@ with st.container(border=True):
                 st.session_state.pending_submit = None
                 st.rerun()
 
-    # 2. СТРЕЛКАТА ВДЯСНО
     with col_send:
         st.button("", icon=":material/arrow_upward:", on_click=submit_action, help="Изпрати")
 
