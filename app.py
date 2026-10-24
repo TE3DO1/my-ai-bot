@@ -5,7 +5,7 @@ from google.genai import types
 
 st.set_page_config(page_title="Ask T-Pire", page_icon="⚡", layout="centered")
 
-st.title("⚡ Ask T-Pire (Fast Chat & Vision Solver)")
+st.title("⚡ Ask T-Pire")
 
 # ----------------- CREATOR & BEHAVIOR PROMPT -----------------
 SYSTEM_PROMPT = """
@@ -17,8 +17,8 @@ If anyone asks who created you, who made you, or who your developer is, you must
 CAPABILITIES:
 - When an image is provided:
   1. Extract all text, equations, and questions accurately from the image.
-  2. Solve the problem step-by-step with clear explanations.
-- When chatting normally, be fast, witty, polite, and helpful.
+  2. Solve the problem step-by-step with clear, correct explanations.
+- When chatting normally, be witty, polite, helpful, and logical.
 """
 
 # Check API Key
@@ -36,6 +36,30 @@ def get_client(key):
 
 client = get_client(api_key)
 
+# ----------------- SIDEBAR: VERSION SWITCHER -----------------
+st.sidebar.header("⚙️ AI Version Switcher")
+
+version_choice = st.sidebar.selectbox(
+    "Choose AI Brain:",
+    [
+        "🧠 Smart Mode (Gemini 3.8 Flash - Accurate & Math)",
+        "⚡ Fast Mode (Gemini 3.5 Flash-Lite - Ultra Speed)",
+    ],
+    index=0  # Defaults to Smart Mode for correct answers
+)
+
+# Set model and temperature based on user selection
+if "Smart" in version_choice:
+    selected_model = "gemini-3.8-flash"
+    selected_temp = 0.2  # Precise & factual
+    st.sidebar.caption("🎯 *Best for homework, math, coding, and precise reasoning.*")
+else:
+    selected_model = "gemini-3.5-flash-lite"
+    selected_temp = 0.6  # Quick & conversational
+    st.sidebar.caption("🚀 *Best for rapid chatting, quick ideas, and small talk.*")
+
+st.sidebar.markdown("---")
+
 # ----------------- SIDEBAR: PICTURE SOLVER -----------------
 st.sidebar.header("📸 Picture Solver (Vision)")
 uploaded_file = st.sidebar.file_uploader(
@@ -50,7 +74,7 @@ if uploaded_file is not None:
         data=uploaded_file.getvalue(),
         mime_type=uploaded_file.type
     )
-    st.sidebar.info("💡 Type your question below, or type 'solve this' to solve the image.")
+    st.sidebar.info("💡 Type 'solve this' or ask a question about the picture below.")
 
 # ----------------- CHAT HISTORY -----------------
 if "messages" not in st.session_state:
@@ -62,7 +86,7 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # ----------------- CHAT INPUT -----------------
-if prompt := st.chat_input("Ask a question or upload a photo to solve..."):
+if prompt := st.chat_input("Ask T-Pire anything..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -89,14 +113,15 @@ if prompt := st.chat_input("Ask a question or upload a photo to solve..."):
 
         for attempt in range(max_retries):
             try:
-                with st.spinner("Analyzing image and solving..." if image_part else "Thinking..."):
+                spinner_text = "Solving..." if image_part else ("Thinking deeply..." if "Smart" in version_choice else "Typing fast...")
+                with st.spinner(spinner_text):
                     stream = client.models.generate_content_stream(
-                        model="gemini-3.5-flash-lite",
+                        model=selected_model,
                         contents=contents,
                         config=types.GenerateContentConfig(
                             system_instruction=SYSTEM_PROMPT,
-                            temperature=0.5,
-                            max_output_tokens=1500,
+                            temperature=selected_temp,
+                            max_output_tokens=2000,
                         ),
                     )
                     
