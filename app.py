@@ -5,7 +5,21 @@ from google.genai import types
 
 st.set_page_config(page_title="Ask T-Pire", page_icon="⚡", layout="centered")
 
-st.title("⚡ Ask T-Pire (Vision & Solver)")
+st.title("⚡ Ask T-Pire (Fast Chat & Vision Solver)")
+
+# ----------------- CREATOR & BEHAVIOR PROMPT -----------------
+SYSTEM_PROMPT = """
+You are T-Pire, a smart, fast, and helpful AI assistant and tutor with computer vision.
+
+CREATOR RULE:
+If anyone asks who created you, who made you, or who your developer is, you must proudly state that you were created by 17-year-old teenager Teodor Pimpirev! Never say you were made by Google.
+
+CAPABILITIES:
+- When an image is provided:
+  1. Extract all text, equations, and questions accurately from the image.
+  2. Solve the problem step-by-step with clear explanations.
+- When chatting normally, be fast, witty, polite, and helpful.
+"""
 
 # Check API Key
 api_key = st.secrets.get("GEMINI_API_KEY")
@@ -22,14 +36,13 @@ def get_client(key):
 
 client = get_client(api_key)
 
-# ----------------- SIDEBAR: IMAGE UPLOADER -----------------
-st.sidebar.header("📸 Picture Solver")
+# ----------------- SIDEBAR: PICTURE SOLVER -----------------
+st.sidebar.header("📸 Picture Solver (Vision)")
 uploaded_file = st.sidebar.file_uploader(
-    "Upload a picture (math, text, notes, forms)", 
+    "Upload a picture (math, notes, questions, forms)", 
     type=["jpg", "jpeg", "png", "webp"]
 )
 
-# Preview and prepare image if provided
 image_part = None
 if uploaded_file is not None:
     st.sidebar.image(uploaded_file, caption="Uploaded Picture", use_container_width=True)
@@ -39,49 +52,40 @@ if uploaded_file is not None:
     )
     st.sidebar.info("💡 Type your question below, or type 'solve this' to solve the image.")
 
-# ----------------- CONVERSATION MEMORY -----------------
+# ----------------- CHAT HISTORY -----------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display conversation history
+# Display previous conversation
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 # ----------------- CHAT INPUT -----------------
-if prompt := st.chat_input("Ask T-Pire anything..."):
+if prompt := st.chat_input("Ask a question or upload a photo to solve..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Build history context
+    # Conversation history context
     recent_messages = st.session_state.messages[-4:-1]
     contents = []
-    
-    # Add previous chat history
+
     for m in recent_messages:
         role = "user" if m["role"] == "user" else "model"
         contents.append(types.Content(role=role, parts=[types.Part.from_text(text=m["content"])]))
 
-    # Build current turn with image (if uploaded) and question
+    # Add current prompt and image (if attached)
     current_parts = []
     if image_part:
         current_parts.append(image_part)
     current_parts.append(types.Part.from_text(text=prompt))
     contents.append(types.Content(role="user", parts=current_parts))
 
-   SYSTEM_PROMPT = """
-        You are T-Pire, a smart, fast, and helpful AI assistant and tutor with computer vision.
-
-        CREATOR RULE:
-        If anyone asks who created you, who made you, or who your developer is, you must proudly state that you were created by 17-year-old teenager Teodor Pimpirev! Never say you were made by Google.
-
-        CAPABILITIES:
-        - When an image is provided:
-          1. Extract all text, equations, and questions accurately.
-          2. Solve the problem step-by-step with clear explanations.
-        - When chatting normally, be fast, witty, polite, and helpful.
-        """
+    with st.chat_message("assistant"):
+        message_placeholder = st.empty()
+        max_retries = 3
+        reply_text = ""
 
         for attempt in range(max_retries):
             try:
@@ -91,27 +95,25 @@ if prompt := st.chat_input("Ask T-Pire anything..."):
                         contents=contents,
                         config=types.GenerateContentConfig(
                             system_instruction=SYSTEM_PROMPT,
-                            temperature=0.4,  # Lower temperature for higher accuracy in problem solving
+                            temperature=0.5,
                             max_output_tokens=1500,
                         ),
                     )
                     
-                    # Stream response word-by-word
                     for chunk in stream:
                         if chunk.text:
                             reply_text += chunk.text
                             message_placeholder.markdown(reply_text + "▌")
-                    
+
                     message_placeholder.markdown(reply_text)
                     st.session_state.messages.append({"role": "assistant", "content": reply_text})
                     break
 
             except Exception as e:
                 err_str = str(e)
-                # Handle 503 traffic spikes automatically
                 if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < max_retries - 1:
                     time.sleep(1.5 * (attempt + 1))
                     continue
                 else:
-                    message_placeholder.warning("⚠️ Server busy right now. Please press Enter to ask again.")
+                    message_placeholder.warning("⚠️ Server busy right now. Please press Enter to try again.")
                     break
