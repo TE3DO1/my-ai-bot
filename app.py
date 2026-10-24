@@ -102,7 +102,7 @@ css_styles = """
         border-right: 1px solid #272832 !important;
     }
 
-    /* Модел селектор горе вляво на главния екран */
+    /* Модел селектор горе вляво */
     div[data-testid="stSelectbox"] {
         max-width: 200px;
     }
@@ -151,14 +151,8 @@ css_styles = """
         color: #8e8f99 !important;
     }
 
-    div[data-testid="stPopover"] button {
-        background-color: transparent !important;
-        border: none !important;
-        color: #9ca3af !important;
-        padding: 2px 4px !important;
-        border-radius: 8px !important;
-    }
-
+    /* Бутонът + и стрелката */
+    div[data-testid="stPopover"] button,
     div[data-testid="stButton"] button {
         background-color: transparent !important;
         border: none !important;
@@ -166,40 +160,30 @@ css_styles = """
         border-radius: 8px !important;
         padding: 2px 4px !important;
     }
+    div[data-testid="stPopover"] button:hover,
+    div[data-testid="stButton"] button:hover {
+        color: #ffffff !important;
+    }
 
-    /* --- ФИКС ЗА ТЕЛЕФОНИ: ТРИТЕ ИКОНКИ ЗАЛЕПЕНИ ВЛЯВО, СТРЕЛКАТА ВДЯСНО --- */
+    /* ФИКС: САМО ДВА БУТОНА (+ вляво, ➤ вдясно) - НИКОГА НЕ СЕ ЧУПИ */
     div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stHorizontalBlock"] {
         display: flex !important;
         flex-direction: row !important;
         flex-wrap: nowrap !important;
         align-items: center !important;
-        justify-content: flex-start !important;
-        gap: 6px !important;
+        justify-content: space-between !important;
         width: 100% !important;
     }
-
-    /* Трите иконки вляво: плътно събрани без раздалечаване */
     div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="column"]:nth-child(1),
-    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="column"]:nth-child(2),
     div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="column"]:nth-child(3) {
         flex: 0 0 auto !important;
         width: auto !important;
         min-width: 0 !important;
         padding: 0 !important;
     }
-
-    /* Празното място между трите точки и стрелката */
-    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="column"]:nth-child(4) {
+    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="column"]:nth-child(2) {
         flex-grow: 1 !important;
         width: auto !important;
-    }
-
-    /* Стрелката най-вдясно */
-    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="column"]:nth-child(5) {
-        flex: 0 0 auto !important;
-        width: auto !important;
-        min-width: 0 !important;
-        padding: 0 !important;
     }
 
     @media (max-width: 768px) {
@@ -459,7 +443,7 @@ for msg in st.session_state.messages:
                 st.info(f"📄 **Прикачен документ:** `{msg.get('file_name', 'документ')}`")
         st.markdown(msg["content"])
 
-# ----------------- КОМПАКТЕН БАР (СЪБРАНИ ИКОНКИ ВЛЯВО) -----------------
+# ----------------- БАР СЪС САМО ДВА БУТОНА: [+] ВЛЯВО И [➤] ВДЯСНО -----------------
 bar_placeholder = "Продължи разговора" if st.session_state.messages else "Попитай нещо"
 
 def submit_action():
@@ -484,35 +468,40 @@ with st.container(border=True):
     if st.session_state.attached_file:
         st.caption(f"📎 Готов за изпращане: `{st.session_state.attached_file.name}`")
 
-    # Колонките: първите три са плътно вляво с CSS, 4-тата е разделител, 5-тата е стрелката вдясно
-    col_doc, col_img, col_dots, col_spacer, col_send = st.columns([1, 1, 1, 12, 1])
+    # Редът има точно 2 бутона в двата края
+    col_plus, col_space, col_send = st.columns([1, 10, 1])
 
-    with col_doc:
-        with st.popover("", icon=":material/note_add:", help="Качи PDF / Документ"):
-            pdf_upload = st.file_uploader("Качи PDF / Текст", type=["pdf", "txt"], key="up_pdf")
-            if pdf_upload:
-                st.session_state.attached_file = pdf_upload
-                st.success("Прикачен!")
+    # 1. ВСИЧКО Е В ТОЗИ ЕДИН ЕДИНСТВЕН БУТОН [+]
+    with col_plus:
+        with st.popover("", icon=":material/add:", help="Опции, файлове и инструменти"):
+            st.markdown("**📁 Прикачване на файл:**")
+            tab_pdf, tab_pic = st.tabs(["📄 PDF / Текст", "🖼️ Снимка"])
+            
+            with tab_pdf:
+                pdf_upload = st.file_uploader("Избери документ", type=["pdf", "txt"], key="up_pdf")
+                if pdf_upload:
+                    st.session_state.attached_file = pdf_upload
+                    st.success("Прикачен!")
 
-    with col_img:
-        with st.popover("", icon=":material/add_photo_alternate:", help="Качи снимка"):
-            img_upload = st.file_uploader("Качи снимка", type=["jpg", "jpeg", "png", "webp"], key="up_img")
-            if img_upload:
-                st.session_state.attached_file = img_upload
-                st.success("Прикачена!")
+            with tab_pic:
+                img_upload = st.file_uploader("Избери снимка", type=["jpg", "jpeg", "png", "webp"], key="up_img")
+                if img_upload:
+                    st.session_state.attached_file = img_upload
+                    st.success("Прикачена!")
 
-    with col_dots:
-        with st.popover("", icon=":material/more_horiz:", help="Инструменти и опции"):
-            st.markdown("**Инструменти на AI:**")
+            st.divider()
+            st.markdown("**⚙️ Инструменти на AI:**")
             st.session_state.tool_search = st.toggle("🌐 Търсене в интернет", value=st.session_state.tool_search)
             st.session_state.tool_reasoning = st.toggle("🗣️ Дълбоко разсъждение", value=st.session_state.tool_reasoning)
+            
             st.divider()
-            if st.button("🗑️ Изчисти този екран"):
+            if st.button("🗑️ Изчисти този екран", use_container_width=True):
                 st.session_state.messages = []
                 st.session_state.attached_file = None
                 st.session_state.pending_submit = None
                 st.rerun()
 
+    # 2. СТРЕЛКАТА ВДЯСНО
     with col_send:
         st.button("", icon=":material/arrow_upward:", on_click=submit_action, help="Изпрати")
 
