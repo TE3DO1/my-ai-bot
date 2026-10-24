@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import urllib.parse
 from google import genai
 from google.genai import types
 
@@ -15,14 +16,14 @@ if not api_key:
         st.warning("👈 Please enter your Gemini API Key in the sidebar.")
         st.stop()
 
-# Reuse connection
+# Reuse client connection
 @st.cache_resource
 def get_client(key):
     return genai.Client(api_key=key)
 
 client = get_client(api_key)
 
-# ----------------- SIDEBAR -----------------
+# ----------------- SIDEBAR: PICTURE SOLVER (VISION) -----------------
 st.sidebar.header("📸 Picture Solver (Vision)")
 uploaded_file = st.sidebar.file_uploader(
     "Upload a picture to read or solve", 
@@ -38,14 +39,14 @@ if uploaded_file is not None:
     )
 
 st.sidebar.markdown("---")
-st.sidebar.header("🎨 Image Generator")
-st.sidebar.caption("Type `/image <description>` in the chat to generate any picture using Imagen 3!")
+st.sidebar.header("🎨 Free Image Generator")
+st.sidebar.caption("Type `/image <description>` in chat to draw pictures instantly!")
 
 # ----------------- CHAT HISTORY -----------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display previous conversation (handles both text & generated images)
+# Display conversation history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         if msg.get("type") == "image":
@@ -79,41 +80,33 @@ def extract_prompt(text: str) -> str:
     return text.strip()
 
 # ----------------- CHAT INPUT -----------------
-if prompt := st.chat_input("Ask a question, upload a photo, or type '/image a cyberpunk city'..."):
-    # Display user input
+if prompt := st.chat_input("Ask a question, upload a picture, or type '/image a dog'..."):
     st.session_state.messages.append({"role": "user", "type": "text", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # CASE 1: USER WANTS TO GENERATE A PICTURE
+    # CASE 1: GENERATE AN IMAGE (FREE VIA FLUX/POLLINATIONS)
     if is_image_request(prompt):
         img_prompt = extract_prompt(prompt)
         with st.chat_message("assistant"):
-            with st.spinner(f"🎨 Generating: '{img_prompt}'..."):
+            with st.spinner(f"🎨 Generating '{img_prompt}'..."):
                 try:
-                    result = client.models.generate_images(
-                        model="imagen-3.0-generate-002",
-                        prompt=img_prompt,
-                        config=dict(number_of_images=1, aspect_ratio="1:1")
-                    )
+                    # Clean encode prompt into free image generator URL
+                    encoded = urllib.parse.quote(img_prompt)
+                    image_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true"
                     
-                    if result.generated_images:
-                        img_bytes = result.generated_images[0].image.image_bytes
-                        st.image(img_bytes, caption=f"🎨 '{img_prompt}'")
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "type": "image",
-                            "content": img_bytes,
-                            "caption": f"🎨 '{img_prompt}'"
-                        })
-                    else:
-                        st.warning("Could not generate the image. Please try a different description.")
+                    st.image(image_url, caption=f"🎨 '{img_prompt}'")
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "type": "image",
+                        "content": image_url,
+                        "caption": f"🎨 '{img_prompt}'"
+                    })
                 except Exception as e:
-                    st.error(f"Image generation error: {e}")
+                    st.error(f"Image error: {e}")
 
-    # CASE 2: NORMAL CHAT OR VISION SOLVER
+    # CASE 2: NORMAL CHAT OR VISION SOLVER (GEMINI)
     else:
-        # Filter previous text messages for conversation context
         text_messages = [m for m in st.session_state.messages if m.get("type", "text") == "text"]
         recent_messages = text_messages[-4:-1]
         contents = []
